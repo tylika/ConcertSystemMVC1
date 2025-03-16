@@ -1,12 +1,12 @@
 ﻿@model ConcertSystemDomain.Model.Spectator
 
 @{
-    ViewData["Title"] = "Create";
+    ViewData["Title"] = "Додати глядача";
 }
 
-<h1>Create</h1>
+<h1>Додати глядача</h1>
 
-<h4>Spectator</h4>
+<h4>Глядач</h4>
 <hr />
 <div class="row">
     <div class="col-md-4">
@@ -20,7 +20,8 @@
             <div class="form-group">
                 <label asp-for="Phone" class="control-label"></label>
                 <input asp-for="Phone" class="form-control" />
-                <span asp-validation-for="Phone" class="text-danger"></span>
+                <small id="phone-error" class="form-text text-danger" style="display: none;">Номер телефону має бути у форматі +380XXXXXXXXX (13 символів, лише цифри після +).</small>
+                <span asp-validation-for="Phone" class="text-danger" style="display: none;"></span>
             </div>
             <div class="form-group">
                 <label asp-for="Email" class="control-label"></label>
@@ -28,16 +29,41 @@
                 <span asp-validation-for="Email" class="text-danger"></span>
             </div>
             <div class="form-group">
-                <input type="submit" value="Create" class="btn btn-primary" />
+                <input type="submit" value="Додати" class="btn btn-primary" />
             </div>
         </form>
     </div>
 </div>
 
 <div>
-    <a asp-action="Index">Back to List</a>
+    <a asp-action="Index">Повернутися до списку</a>
 </div>
 
 @section Scripts {
-    @{await Html.RenderPartialAsync("_ValidationScriptsPartial");}
+    @{
+        await Html.RenderPartialAsync("_ValidationScriptsPartial");
+    }
+    <script>
+        // Отримуємо елементи
+        var phoneInput = document.querySelector('input[name="Phone"]');
+        var phoneError = document.getElementById('phone-error');
+
+        // Додаємо обробник події для відображення помилки
+        phoneInput.addEventListener('input', function () {
+            var phoneValue = this.value;
+            if (phoneValue && (phoneValue.length !== 13 || !phoneValue.startsWith('+') || !phoneValue.substring(1).match(/^\d+$/))) {
+                phoneError.style.display = 'block';
+            } else {
+                phoneError.style.display = 'none';
+            }
+        });
+
+        // Перевіряємо при завантаженні сторінки
+        var validationMessage = document.querySelector('span[data-valmsg-for="Phone"][data-valmsg-replace="true"]');
+        if (validationMessage && validationMessage.textContent) {
+            phoneError.style.display = 'block';
+            phoneError.textContent = validationMessage.textContent;
+            validationMessage.style.display = 'none';
+        }
+    </script>
 }

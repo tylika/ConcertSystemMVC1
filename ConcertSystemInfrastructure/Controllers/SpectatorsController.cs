@@ -1,12 +1,8 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Linq;
+﻿using System.Linq;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.AspNetCore.Mvc.Rendering;
 using Microsoft.EntityFrameworkCore;
 using ConcertSystemDomain.Model;
-using ConcertSystemInfrastructure;
 
 namespace ConcertSystemInfrastructure.Controllers
 {
@@ -19,43 +15,44 @@ namespace ConcertSystemInfrastructure.Controllers
             _context = context;
         }
 
-        // GET: Spectators
         public async Task<IActionResult> Index()
         {
             return View(await _context.Spectators.ToListAsync());
         }
 
-        // GET: Spectators/Details/5
-        public async Task<IActionResult> Details(int? id)
-        {
-            if (id == null)
-            {
-                return NotFound();
-            }
-
-            var spectator = await _context.Spectators
-                .FirstOrDefaultAsync(m => m.Id == id);
-            if (spectator == null)
-            {
-                return NotFound();
-            }
-
-            return View(spectator);
-        }
-
-        // GET: Spectators/Create
         public IActionResult Create()
         {
             return View();
         }
 
-        // POST: Spectators/Create
-        // To protect from overposting attacks, enable the specific properties you want to bind to.
-        // For more details, see http://go.microsoft.com/fwlink/?LinkId=317598.
         [HttpPost]
         [ValidateAntiForgeryToken]
-        public async Task<IActionResult> Create([Bind("FullName,Phone,Email,Id")] Spectator spectator)
+        public async Task<IActionResult> Create([Bind("FullName,Phone,Email")] Spectator spectator)
         {
+            // Перевірка унікальності ПІБ
+            if (await _context.Spectators.AnyAsync(s => s.FullName == spectator.FullName))
+            {
+                ModelState.AddModelError("FullName", "Глядач із таким ПІБ уже існує.");
+            }
+
+            // Перевірка унікальності телефону
+            if (!string.IsNullOrEmpty(spectator.Phone) && await _context.Spectators.AnyAsync(s => s.Phone == spectator.Phone))
+            {
+                ModelState.AddModelError("Phone", "Глядач із таким номером телефону уже існує.");
+            }
+
+            // Перевірка унікальності email
+            if (await _context.Spectators.AnyAsync(s => s.Email == spectator.Email))
+            {
+                ModelState.AddModelError("Email", "Глядач із такою електронною поштою уже існує.");
+            }
+
+            // Кастомна валідація номера телефону
+            if (!string.IsNullOrEmpty(spectator.Phone) && (spectator.Phone.Length != 13 || !spectator.Phone.StartsWith("+") || !spectator.Phone.Substring(1).All(char.IsDigit)))
+            {
+                ModelState.AddModelError("Phone", "Номер телефону має бути у форматі +380XXXXXXXXX (13 символів, лише цифри після +).");
+            }
+
             if (ModelState.IsValid)
             {
                 _context.Add(spectator);
@@ -65,32 +62,43 @@ namespace ConcertSystemInfrastructure.Controllers
             return View(spectator);
         }
 
-        // GET: Spectators/Edit/5
         public async Task<IActionResult> Edit(int? id)
         {
-            if (id == null)
-            {
-                return NotFound();
-            }
+            if (id == null) return NotFound();
 
             var spectator = await _context.Spectators.FindAsync(id);
-            if (spectator == null)
-            {
-                return NotFound();
-            }
+            if (spectator == null) return NotFound();
             return View(spectator);
         }
 
-        // POST: Spectators/Edit/5
-        // To protect from overposting attacks, enable the specific properties you want to bind to.
-        // For more details, see http://go.microsoft.com/fwlink/?LinkId=317598.
         [HttpPost]
         [ValidateAntiForgeryToken]
-        public async Task<IActionResult> Edit(int id, [Bind("FullName,Phone,Email,Id")] Spectator spectator)
+        public async Task<IActionResult> Edit(int id, [Bind("Id,FullName,Phone,Email")] Spectator spectator)
         {
-            if (id != spectator.Id)
+            if (id != spectator.Id) return NotFound();
+
+            // Перевірка унікальності ПІБ (крім поточного запису)
+            if (await _context.Spectators.AnyAsync(s => s.FullName == spectator.FullName && s.Id != spectator.Id))
             {
-                return NotFound();
+                ModelState.AddModelError("FullName", "Глядач із таким ПІБ уже існує.");
+            }
+
+            // Перевірка унікальності телефону (крім поточного запису)
+            if (!string.IsNullOrEmpty(spectator.Phone) && await _context.Spectators.AnyAsync(s => s.Phone == spectator.Phone && s.Id != spectator.Id))
+            {
+                ModelState.AddModelError("Phone", "Глядач із таким номером телефону уже існує.");
+            }
+
+            // Перевірка унікальності email (крім поточного запису)
+            if (await _context.Spectators.AnyAsync(s => s.Email == spectator.Email && s.Id != spectator.Id))
+            {
+                ModelState.AddModelError("Email", "Глядач із такою електронною поштою уже існує.");
+            }
+
+            // Кастомна валідація номера телефону
+            if (!string.IsNullOrEmpty(spectator.Phone) && (spectator.Phone.Length != 13 || !spectator.Phone.StartsWith("+") || !spectator.Phone.Substring(1).All(char.IsDigit)))
+            {
+                ModelState.AddModelError("Phone", "Номер телефону має бути у форматі +380XXXXXXXXX (13 символів, лише цифри після +).");
             }
 
             if (ModelState.IsValid)
@@ -102,39 +110,24 @@ namespace ConcertSystemInfrastructure.Controllers
                 }
                 catch (DbUpdateConcurrencyException)
                 {
-                    if (!SpectatorExists(spectator.Id))
-                    {
-                        return NotFound();
-                    }
-                    else
-                    {
-                        throw;
-                    }
+                    if (!SpectatorExists(spectator.Id)) return NotFound();
+                    throw;
                 }
                 return RedirectToAction(nameof(Index));
             }
             return View(spectator);
         }
 
-        // GET: Spectators/Delete/5
         public async Task<IActionResult> Delete(int? id)
         {
-            if (id == null)
-            {
-                return NotFound();
-            }
+            if (id == null) return NotFound();
 
-            var spectator = await _context.Spectators
-                .FirstOrDefaultAsync(m => m.Id == id);
-            if (spectator == null)
-            {
-                return NotFound();
-            }
+            var spectator = await _context.Spectators.FirstOrDefaultAsync(m => m.Id == id);
+            if (spectator == null) return NotFound();
 
             return View(spectator);
         }
 
-        // POST: Spectators/Delete/5
         [HttpPost, ActionName("Delete")]
         [ValidateAntiForgeryToken]
         public async Task<IActionResult> DeleteConfirmed(int id)
@@ -143,9 +136,8 @@ namespace ConcertSystemInfrastructure.Controllers
             if (spectator != null)
             {
                 _context.Spectators.Remove(spectator);
+                await _context.SaveChangesAsync();
             }
-
-            await _context.SaveChangesAsync();
             return RedirectToAction(nameof(Index));
         }
 
