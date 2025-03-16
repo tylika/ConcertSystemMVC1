@@ -2,6 +2,8 @@
 using Microsoft.EntityFrameworkCore;
 using ConcertSystemDomain.Model;
 using ConcertSystemInfrastructure;
+using System.Linq;
+using System.Threading.Tasks;
 
 namespace ConcertSystemInfrastructure.Controllers
 {
@@ -55,7 +57,6 @@ namespace ConcertSystemInfrastructure.Controllers
         [ValidateAntiForgeryToken]
         public async Task<IActionResult> Create([Bind("Id,FullName,SocialMedia")] Artist artist)
         {
-            // Перевірка унікальності FullName і SocialMedia
             if (await _context.Artists.AnyAsync(a => a.FullName == artist.FullName))
             {
                 ModelState.AddModelError("FullName", "Артист із такою назвою вже існує.");
@@ -101,7 +102,6 @@ namespace ConcertSystemInfrastructure.Controllers
                 return NotFound();
             }
 
-            // Перевірка унікальності FullName і SocialMedia (за винятком поточного артиста)
             if (await _context.Artists.AnyAsync(a => a.FullName == artist.FullName && a.Id != artist.Id))
             {
                 ModelState.AddModelError("FullName", "Артист із такою назвою вже існує.");

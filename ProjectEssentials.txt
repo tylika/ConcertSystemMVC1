@@ -29,13 +29,16 @@
 // ==== Model\Artist.cs ====
 using System;
 using System.Collections.Generic;
+using System.ComponentModel.DataAnnotations;
 
 namespace ConcertSystemDomain.Model;
 
 public partial class Artist : Entity
 {
+    [Required(ErrorMessage = "Поле Назва є обов'язковим")]
+    [Display(Name = "Назва")]
     public string FullName { get; set; } = null!;
-
+    [Required(ErrorMessage = "Поле Соціальні мережі є обов'язковим")]
     public string? SocialMedia { get; set; }
 
     public virtual ICollection<Concert> Concerts { get; set; } = new List<Concert>();
@@ -45,28 +48,80 @@ public partial class Artist : Entity
 // ==== Model\Concert.cs ====
 using System;
 using System.Collections.Generic;
+using System.ComponentModel.DataAnnotations;
 
-namespace ConcertSystemDomain.Model;
-
-public partial class Concert : Entity
+namespace ConcertSystemDomain.Model
 {
-    public int ArtistId { get; set; }
+    public partial class Concert : Entity
+    {
+        [Required(ErrorMessage = "Поле Артист є обов'язковим")]
+        public int ArtistId { get; set; }
 
-    public DateTime ConcertDate { get; set; }
+        [Required(ErrorMessage = "Поле Дата концерту є обов'язковим")]
+        [CustomDateValidation(ErrorMessage = "Концерт має бути запланований щонайменше за місяць від поточної дати")]
+        public DateTime ConcertDate { get; set; }
 
-    public string Location { get; set; } = null!;
+        [Required(ErrorMessage = "Поле Місто проведення є обов'язковим")]
+        [Display(Name = "Місто проведення")]
+        public string Location { get; set; } = null!;
 
-    public int TotalTickets { get; set; }
+        [Required(ErrorMessage = "Поле Загальна кількість квитків є обов'язковим")]
+        [Range(1, int.MaxValue, ErrorMessage = "Загальна кількість квитків має бути більше 0")]
+        public int TotalTickets { get; set; }
 
-    public int AvailableTickets { get; set; }
+        [Required(ErrorMessage = "Поле Доступні квитки є обов'язковим")]
+        [CustomTicketsValidation(ErrorMessage = "Доступних квитків не може бути більше, ніж загальна кількість квитків")]
+        public int AvailableTickets { get; set; }
 
-    public virtual Artist Artist { get; set; } = null!;
+        public virtual Artist Artist { get; set; } = null!;
+        public virtual ICollection<Ticket> Tickets { get; set; } = new List<Ticket>();
+        public virtual ICollection<Genre> Genres { get; set; } = new List<Genre>();
+    }
 
-    public virtual ICollection<Ticket> Tickets { get; set; } = new List<Ticket>();
+    // Кастомна валідація для дати концерту
+    public class CustomDateValidationAttribute : ValidationAttribute
+    {
+        protected override ValidationResult IsValid(object value, ValidationContext validationContext)
+        {
+            if (value is DateTime concertDate)
+            {
+                // Поточна дата
+                DateTime currentDate = DateTime.Now;
+                // Додаємо місяць до поточної дати
+                DateTime minAllowedDate = currentDate.AddMonths(1);
 
-    public virtual ICollection<Genre> Genres { get; set; } = new List<Genre>();
+                if (concertDate < minAllowedDate)
+                {
+                    return new ValidationResult(ErrorMessage);
+                }
+            }
+            return ValidationResult.Success;
+        }
+    }
+
+    // Кастомна валідація для кількості квитків
+    public class CustomTicketsValidationAttribute : ValidationAttribute
+    {
+        protected override ValidationResult IsValid(object value, ValidationContext validationContext)
+        {
+            var concert = (Concert)validationContext.ObjectInstance;
+            int availableTickets = (int)value;
+            int totalTickets = concert.TotalTickets;
+
+            if (availableTickets > totalTickets)
+            {
+                return new ValidationResult(ErrorMessage);
+            }
+
+            if (availableTickets < 0)
+            {
+                return new ValidationResult("Доступних квитків не може бути менше 0");
+            }
+
+            return ValidationResult.Success;
+        }
+    }
 }
-
 
 // ==== Model\Entity.cs ====
 using System;
@@ -239,6 +294,8 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using ConcertSystemDomain.Model;
 using ConcertSystemInfrastructure;
+using System.Linq;
+using System.Threading.Tasks;
 
 namespace ConcertSystemInfrastructure.Controllers
 {
@@ -251,13 +308,17 @@ namespace ConcertSystemInfrastructure.Controllers
             _context = context;
         }
 
-        // GET: Артисти
+        // GET: Artists
         public async Task<IActionResult> Index()
         {
+            ViewData["Artists"] = await _context.Artists.Select(a => a.FullName).Distinct().ToListAsync();
+            ViewData["Genres"] = await _context.Genres.Select(g => g.Name).Distinct().ToListAsync();
+            ViewData["Locations"] = await _context.Concerts.Select(c => c.Location).Distinct().ToListAsync();
+
             return View(await _context.Artists.ToListAsync());
         }
 
-        // GET: Деталі артиста/5
+        // GET: Artists/Details/5
         public async Task<IActionResult> Details(int? id)
         {
             if (id == null)
@@ -266,6 +327,8 @@ namespace ConcertSystemInfrastructure.Controllers
             }
 
             var artist = await _context.Artists
+                .Include(a => a.Concerts)
+                .ThenInclude(c => c.Genres)
                 .FirstOrDefaultAsync(m => m.Id == id);
             if (artist == null)
             {
@@ -275,17 +338,27 @@ namespace ConcertSystemInfrastructure.Controllers
             return View(artist);
         }
 
-        // GET: Створити артиста
+        // GET: Artists/Create
         public IActionResult Create()
         {
             return View();
         }
 
-        // POST: Створити артиста
+        // POST: Artists/Create
         [HttpPost]
         [ValidateAntiForgeryToken]
-        public async Task<IActionResult> Create([Bind("FullName,SocialMedia,Id")] Artist artist)
+        public async Task<IActionResult> Create([Bind("Id,FullName,SocialMedia")] Artist artist)
         {
+            if (await _context.Artists.AnyAsync(a => a.FullName == artist.FullName))
+            {
+                ModelState.AddModelError("FullName", "Артист із такою назвою вже існує.");
+            }
+
+            if (await _context.Artists.AnyAsync(a => a.SocialMedia == artist.SocialMedia))
+            {
+                ModelState.AddModelError("SocialMedia", "Артист із такою соціальною мережею вже існує.");
+            }
+
             if (ModelState.IsValid)
             {
                 _context.Add(artist);
@@ -295,7 +368,7 @@ namespace ConcertSystemInfrastructure.Controllers
             return View(artist);
         }
 
-        // GET: Редагувати артиста/5
+        // GET: Artists/Edit/5
         public async Task<IActionResult> Edit(int? id)
         {
             if (id == null)
@@ -311,14 +384,24 @@ namespace ConcertSystemInfrastructure.Controllers
             return View(artist);
         }
 
-        // POST: Редагувати артиста/5
+        // POST: Artists/Edit/5
         [HttpPost]
         [ValidateAntiForgeryToken]
-        public async Task<IActionResult> Edit(int id, [Bind("FullName,SocialMedia,Id")] Artist artist)
+        public async Task<IActionResult> Edit(int id, [Bind("Id,FullName,SocialMedia")] Artist artist)
         {
             if (id != artist.Id)
             {
                 return NotFound();
+            }
+
+            if (await _context.Artists.AnyAsync(a => a.FullName == artist.FullName && a.Id != artist.Id))
+            {
+                ModelState.AddModelError("FullName", "Артист із такою назвою вже існує.");
+            }
+
+            if (await _context.Artists.AnyAsync(a => a.SocialMedia == artist.SocialMedia && a.Id != artist.Id))
+            {
+                ModelState.AddModelError("SocialMedia", "Артист із такою соціальною мережею вже існує.");
             }
 
             if (ModelState.IsValid)
@@ -344,7 +427,7 @@ namespace ConcertSystemInfrastructure.Controllers
             return View(artist);
         }
 
-        // GET: Видалити артиста/5
+        // GET: Artists/Delete/5
         public async Task<IActionResult> Delete(int? id)
         {
             if (id == null)
@@ -362,7 +445,7 @@ namespace ConcertSystemInfrastructure.Controllers
             return View(artist);
         }
 
-        // POST: Видалити артиста/5
+        // POST: Artists/Delete/5
         [HttpPost, ActionName("Delete")]
         [ValidateAntiForgeryToken]
         public async Task<IActionResult> DeleteConfirmed(int id)
@@ -389,11 +472,14 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using ConcertSystemDomain.Model;
 using ConcertSystemInfrastructure;
+using System;
 using System.Linq;
+using System.Threading.Tasks;
+using Microsoft.AspNetCore.Mvc.Rendering;
 
 namespace ConcertSystemInfrastructure.Controllers
 {
-    public class ConcertsController : Controller
+    public class ConcertsController : Controller // Переконуємося, що успадковується від Controller
     {
         private readonly ConcertTicketSystemContext _context;
 
@@ -405,44 +491,272 @@ namespace ConcertSystemInfrastructure.Controllers
         // GET: Concerts
         public async Task<IActionResult> Index(string artistFilter, string genreFilter, string locationFilter, DateTime? dateFilter)
         {
+            ViewBag.Artists = await _context.Artists.Select(a => a.FullName).Distinct().ToListAsync();
+            ViewBag.Genres = await _context.Genres.Select(g => g.Name).Distinct().ToListAsync();
+            ViewBag.Locations = await _context.Concerts.Select(c => c.Location).Distinct().ToListAsync();
+
             var concerts = _context.Concerts
                 .Include(c => c.Artist)
                 .Include(c => c.Genres)
                 .AsQueryable();
 
-            // Фільтрація за артистом
             if (!string.IsNullOrEmpty(artistFilter))
             {
                 concerts = concerts.Where(c => c.Artist.FullName.Contains(artistFilter));
             }
 
-            // Фільтрація за жанром
             if (!string.IsNullOrEmpty(genreFilter))
             {
                 concerts = concerts.Where(c => c.Genres.Any(g => g.Name == genreFilter));
             }
 
-            // Фільтрація за місцем проведення
             if (!string.IsNullOrEmpty(locationFilter))
             {
                 concerts = concerts.Where(c => c.Location.Contains(locationFilter));
             }
 
-            // Фільтрація за датою
             if (dateFilter.HasValue)
             {
                 concerts = concerts.Where(c => c.ConcertDate.Date == dateFilter.Value.Date);
             }
 
-            // Отримання списків для фільтрів
-            ViewBag.Artists = await _context.Artists.Select(a => a.FullName).Distinct().ToListAsync();
-            ViewBag.Genres = await _context.Genres.Select(g => g.Name).Distinct().ToListAsync();
-            ViewBag.Locations = await _context.Concerts.Select(c => c.Location).Distinct().ToListAsync();
-
             return View(await concerts.ToListAsync());
         }
 
-        // Інші методи (Create, Edit, Delete тощо) залишаються без змін
+        // GET: Concerts/Create
+        public IActionResult Create()
+        {
+            ViewBag.ArtistId = new SelectList(_context.Artists, "Id", "FullName");
+            ViewBag.GenreIds = new SelectList(_context.Genres, "Id", "Name");
+            return View();
+        }
+
+        // POST: Concerts/Create
+        [HttpPost]
+        [ValidateAntiForgeryToken]
+        public async Task<IActionResult> Create([Bind("Id,ArtistId,ConcertDate,Location,TotalTickets,AvailableTickets")] Concert concert, int[] GenreIds)
+        {
+            // Перевірка дати
+            DateTime minAllowedDate = DateTime.Now.AddMonths(1);
+            if (concert.ConcertDate < minAllowedDate)
+            {
+                ModelState.AddModelError("ConcertDate", "Концерт має бути запланований щонайменше за місяць від поточної дати");
+            }
+
+            // Перевірка кількості квитків
+            if (concert.AvailableTickets > concert.TotalTickets)
+            {
+                ModelState.AddModelError("AvailableTickets", "Доступних квитків не може бути більше, ніж загальна кількість квитків");
+            }
+            ModelState.Remove("Artist");
+            ModelState.Remove("Location");
+            if (ModelState.IsValid)
+            {
+                _context.Add(concert);
+                await _context.SaveChangesAsync();
+
+                if (GenreIds != null)
+                {
+                    concert.Genres = await _context.Genres.Where(g => GenreIds.Contains(g.Id)).ToListAsync();
+                    await _context.SaveChangesAsync();
+                }
+
+                return RedirectToAction(nameof(Index));
+            }
+
+            ViewBag.ArtistId = new SelectList(await _context.Artists.Select(a => new { a.Id, a.FullName }).ToListAsync(), "Id", "FullName");
+            ViewBag.GenreIds = new SelectList(await _context.Genres.Select(g => new { g.Id, g.Name }).ToListAsync(), "Id", "Name");
+            return View(concert);
+        }
+
+        // GET: Concerts/Edit/5
+        public async Task<IActionResult> Edit(int? id)
+        {
+            if (id == null)
+            {
+                return NotFound();
+            }
+
+            var concert = await _context.Concerts.FindAsync(id);
+            if (concert == null)
+            {
+                return NotFound();
+            }
+
+            ViewBag.ArtistId = new SelectList(await _context.Artists.Select(a => new { a.Id, a.FullName }).ToListAsync(), "Id", "FullName", concert.ArtistId);
+            ViewBag.GenreIds = new SelectList(await _context.Genres.Select(g => new { g.Id, g.Name }).ToListAsync(), "Id", "Name");
+            return View(concert);
+        }
+
+        // POST: Concerts/Edit/5
+        [HttpPost]
+        [ValidateAntiForgeryToken]
+        public async Task<IActionResult> Edit(int id, [Bind("Id,ArtistId,ConcertDate,Location,TotalTickets,AvailableTickets")] Concert concert, int[] GenreIds)
+        {
+            if (id != concert.Id)
+            {
+                return NotFound();
+            }
+
+            // Перевірка дати
+            DateTime minAllowedDate = DateTime.Now.AddMonths(1);
+            if (concert.ConcertDate < minAllowedDate)
+            {
+                ModelState.AddModelError("ConcertDate", "Концерт має бути запланований щонайменше за місяць від поточної дати");
+            }
+
+            // Перевірка кількості квитків
+            if (concert.AvailableTickets > concert.TotalTickets)
+            {
+                ModelState.AddModelError("AvailableTickets", "Доступних квитків не може бути більше, ніж загальна кількість квитків");
+            }
+            ModelState.Remove("Artist");
+            ModelState.Remove("Location");
+            if (ModelState.IsValid)
+            {
+                try
+                {
+                    _context.Update(concert);
+                    await _context.SaveChangesAsync();
+
+                    var existingGenres = await _context.Concerts
+                        .Include(c => c.Genres)
+                        .FirstOrDefaultAsync(c => c.Id == concert.Id);
+                    if (existingGenres != null)
+                    {
+                        existingGenres.Genres.Clear();
+                        if (GenreIds != null)
+                        {
+                            var newGenres = await _context.Genres.Where(g => GenreIds.Contains(g.Id)).ToListAsync();
+                            foreach (var genre in newGenres)
+                            {
+                                existingGenres.Genres.Add(genre);
+                            }
+                        }
+                        await _context.SaveChangesAsync();
+                    }
+                }
+                catch (DbUpdateConcurrencyException)
+                {
+                    if (!ConcertExists(concert.Id))
+                    {
+                        return NotFound();
+                    }
+                    else
+                    {
+                        throw;
+                    }
+                }
+                return RedirectToAction(nameof(Index));
+            }
+
+            ViewBag.ArtistId = new SelectList(await _context.Artists.Select(a => new { a.Id, a.FullName }).ToListAsync(), "Id", "FullName", concert.ArtistId);
+            ViewBag.GenreIds = new SelectList(await _context.Genres.Select(g => new { g.Id, g.Name }).ToListAsync(), "Id", "Name");
+            return View(concert);
+        }
+
+        // GET: Concerts/Delete/5
+        public async Task<IActionResult> Delete(int? id)
+        {
+            if (id == null)
+            {
+                return NotFound();
+            }
+
+            var concert = await _context.Concerts
+                .Include(c => c.Artist)
+                .FirstOrDefaultAsync(m => m.Id == id);
+            if (concert == null)
+            {
+                return NotFound();
+            }
+
+            return View(concert);
+        }
+
+        // POST: Concerts/Delete/5
+        [HttpPost, ActionName("Delete")]
+        [ValidateAntiForgeryToken]
+        public async Task<IActionResult> DeleteConfirmed(int id)
+        {
+            var concert = await _context.Concerts.FindAsync(id);
+            if (concert != null)
+            {
+                _context.Concerts.Remove(concert);
+            }
+
+            await _context.SaveChangesAsync();
+            return RedirectToAction(nameof(Index));
+        }
+
+        // GET: Concerts/BuyTicket/5
+        public async Task<IActionResult> BuyTicket(int? id)
+        {
+            if (id == null)
+            {
+                return NotFound();
+            }
+
+            var concert = await _context.Concerts
+                .Include(c => c.Artist)
+                .FirstOrDefaultAsync(m => m.Id == id);
+            if (concert == null)
+            {
+                return NotFound();
+            }
+
+            if (concert.AvailableTickets <= 0)
+            {
+                TempData["ErrorMessage"] = "На жаль, квитки на цей концерт закінчилися.";
+                return RedirectToAction(nameof(Index));
+            }
+
+            ViewBag.Concert = concert;
+            return View(new Ticket { ConcertId = concert.Id });
+        }
+
+        // POST: Concerts/BuyTicket/5
+        [HttpPost]
+        [ValidateAntiForgeryToken]
+        public async Task<IActionResult> BuyTicket(int id, [Bind("Id,ConcertId,BuyerName")] Ticket ticket)
+        {
+            if (id != ticket.ConcertId)
+            {
+                return NotFound();
+            }
+
+            var concert = await _context.Concerts.FindAsync(id);
+            if (concert == null)
+            {
+                return NotFound();
+            }
+
+            if (concert.AvailableTickets <= 0)
+            {
+                TempData["ErrorMessage"] = "На жаль, квитки на цей концерт закінчилися.";
+                return RedirectToAction(nameof(Index));
+            }
+            ModelState.Remove("Artist");
+            ModelState.Remove("Location");
+            if (ModelState.IsValid)
+            {
+                _context.Add(ticket);
+                concert.AvailableTickets--;
+                _context.Update(concert);
+
+                await _context.SaveChangesAsync();
+                TempData["SuccessMessage"] = "Квиток успішно куплено!";
+                return RedirectToAction(nameof(Index));
+            }
+
+            ViewBag.Concert = concert;
+            return View(ticket);
+        }
+
+        private bool ConcertExists(int id)
+        {
+            return _context.Concerts.Any(e => e.Id == id);
+        }
     }
 }
 
@@ -1333,14 +1647,14 @@ namespace ConcertSystemInfrastructure.Models
 <div class="row">
     <div class="col-md-4">
         <form asp-action="Create">
-            <div asp-validation-summary="ModelOnly" class="text-danger"></div>
+            <!-- Видаляємо asp-validation-summary -->
             <div class="form-group">
-                <label class="control-label">Повне ім'я</label>
+                <label asp-for="FullName" class="control-label"></label>
                 <input asp-for="FullName" class="form-control" />
                 <span asp-validation-for="FullName" class="text-danger"></span>
             </div>
             <div class="form-group">
-                <label class="control-label">Соціальні мережі</label>
+                <label asp-for="SocialMedia" class="control-label"></label>
                 <input asp-for="SocialMedia" class="form-control" />
                 <span asp-validation-for="SocialMedia" class="text-danger"></span>
             </div>
@@ -1400,32 +1714,52 @@ namespace ConcertSystemInfrastructure.Models
 @model ConcertSystemDomain.Model.Artist
 
 @{
-    ViewData["Title"] = "Деталі артиста";
+    ViewData["Title"] = "Всі концерти артиста";
 }
 
-<h1>Деталі артиста</h1>
+<h1>Всі концерти артиста: @Html.DisplayFor(model => model.FullName)</h1>
 
 <div>
-    <h4>Артист</h4>
     <hr />
-    <dl class="row">
-        <dt class="col-sm-2">
-            @Html.DisplayNameFor(model => model.FullName)
-        </dt>
-        <dd class="col-sm-10">
-            @Html.DisplayFor(model => model.FullName)
-        </dd>
-        <dt class="col-sm-2">
-            @Html.DisplayNameFor(model => model.SocialMedia)
-        </dt>
-        <dd class="col-sm-10">
-            @Html.DisplayFor(model => model.SocialMedia)
-        </dd>
-    </dl>
+    @if (Model.Concerts.Any())
+    {
+        <table class="table">
+            <thead>
+                <tr>
+                    <th>Дата концерту</th>
+                    <th>Місто проведення</th>
+                    <th>Загальна кількість квитків</th>
+                    <th>Доступні квитки</th>
+                    <th>Жанри</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var concert in Model.Concerts)
+                {
+                    <tr>
+                        <td>@Html.DisplayFor(modelItem => concert.ConcertDate)</td>
+                        <td>@Html.DisplayFor(modelItem => concert.Location)</td>
+                        <td>@Html.DisplayFor(modelItem => concert.TotalTickets)</td>
+                        <td>@Html.DisplayFor(modelItem => concert.AvailableTickets)</td>
+                        <td>
+                            @foreach (var genre in concert.Genres)
+                            {
+                                <span>@genre.Name</span>
+                            }
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    }
+    else
+    {
+        <p>Цей артист поки що не має концертів.</p>
+    }
 </div>
+
 <div>
-    <a asp-action="Edit" asp-route-id="@Model?.Id">Редагувати</a> |
-    <a asp-action="Index">Повернутися до списку</a>
+    <a asp-action="Index">Повернутися до списку артистів</a>
 </div>
 
 // ==== Views\Artists\Edit.cshtml ====
@@ -1442,18 +1776,18 @@ namespace ConcertSystemInfrastructure.Models
 <div class="row">
     <div class="col-md-4">
         <form asp-action="Edit">
-            <div asp-validation-summary="ModelOnly" class="text-danger"></div>
+            <!-- Видаляємо asp-validation-summary -->
+            <input type="hidden" asp-for="Id" />
             <div class="form-group">
-                <label class="control-label">Повне ім'я</label>
+                <label asp-for="FullName" class="control-label"></label>
                 <input asp-for="FullName" class="form-control" />
                 <span asp-validation-for="FullName" class="text-danger"></span>
             </div>
             <div class="form-group">
-                <label class="control-label">Соціальні мережі</label>
+                <label asp-for="SocialMedia" class="control-label"></label>
                 <input asp-for="SocialMedia" class="form-control" />
                 <span asp-validation-for="SocialMedia" class="text-danger"></span>
             </div>
-            <input type="hidden" asp-for="Id" />
             <div class="form-group">
                 <input type="submit" value="Зберегти" class="btn btn-primary" />
             </div>
@@ -1487,29 +1821,21 @@ namespace ConcertSystemInfrastructure.Models
 <table class="table">
     <thead>
         <tr>
-            <th>
-                Ім'я
-            </th>
-            <th>
-                Соціальні мережі
-            </th>
-            <th></th>
+            <th>@Html.DisplayNameFor(model => model.FullName)</th> <!-- Автоматично відобразиться "Назва" -->
+            <th>@Html.DisplayNameFor(model => model.SocialMedia)</th>
+            <th>Дії</th>
         </tr>
     </thead>
     <tbody>
         @foreach (var item in Model)
         {
             <tr>
+                <td>@Html.DisplayFor(modelItem => item.FullName)</td>
+                <td>@Html.DisplayFor(modelItem => item.SocialMedia)</td>
                 <td>
-                    @Html.DisplayFor(modelItem => item.FullName)
-                </td>
-                <td>
-                    @Html.DisplayFor(modelItem => item.SocialMedia)
-                </td>
-                <td>
-                    <a asp-action="Edit" asp-route-id="@item.Id">Редагувати</a> |
-                    <a asp-action="Details" asp-route-id="@item.Id">Деталі</a> |
-                    <a asp-action="Delete" asp-route-id="@item.Id">Видалити</a>
+                    <a asp-action="Edit" asp-route-id="@item.Id" class="btn btn-sm btn-secondary">Редагувати</a>
+                    <a asp-action="Delete" asp-route-id="@item.Id" class="btn btn-sm btn-danger">Видалити</a>
+                    <a asp-action="Details" asp-route-id="@item.Id" class="btn btn-sm btn-info">Всі концерти артиста</a>
                 </td>
             </tr>
         }
@@ -1520,40 +1846,63 @@ namespace ConcertSystemInfrastructure.Models
 @model ConcertSystemDomain.Model.Concert
 
 @{
-    ViewData["Title"] = "Додати концерт";
+    ViewData["Title"] = "Додати подію";
 }
 
-<h1>Додати концерт</h1>
+<!-- Тимчасовий стиль для прокручування -->
+<style>
+    html, body {
+        height: 100%;
+        overflow-y: auto;
+    }
 
-<h4>Концерт</h4>
+    .row {
+        min-height: 100%;
+    }
+
+    .validation-message {
+        font-size: 0.9em;
+        margin-top: 5px;
+        display: block;
+    }
+</style>
+
+<h1>Додати подію</h1>
+
+<h4>Подія</h4>
 <hr />
 <div class="row">
-    <div class="col-md-4">
+    <div class="col-md-6">
         <form asp-action="Create">
-            <div asp-validation-summary="ModelOnly" class="text-danger"></div>
             <div class="form-group">
                 <label class="control-label">Артист</label>
                 <select asp-for="ArtistId" class="form-control" asp-items="ViewBag.ArtistId"></select>
+                <span asp-validation-for="ArtistId" class="text-danger"></span>
             </div>
             <div class="form-group">
-                <label class="control-label">Дата концерту</label>
-                <input asp-for="ConcertDate" class="form-control" />
-                <span asp-validation-for="ConcertDate" class="text-danger"></span>
+                <label class="control-label">Дата події</label>
+                <input asp-for="ConcertDate" class="form-control" type="datetime-local" />
+                <small id="concertDateHelp" class="form-text text-muted validation-message">Подія має бути запланована щонайменше за місяць від поточної дати</small>
             </div>
             <div class="form-group">
-                <label class="control-label">Місце проведення</label>
+                <label class="control-label">Місто проведення</label>
                 <input asp-for="Location" class="form-control" />
                 <span asp-validation-for="Location" class="text-danger"></span>
             </div>
             <div class="form-group">
                 <label class="control-label">Загальна кількість квитків</label>
-                <input asp-for="TotalTickets" class="form-control" />
+                <input asp-for="TotalTickets" class="form-control" type="number" />
                 <span asp-validation-for="TotalTickets" class="text-danger"></span>
             </div>
             <div class="form-group">
                 <label class="control-label">Доступні квитки</label>
-                <input asp-for="AvailableTickets" class="form-control" />
+                <input asp-for="AvailableTickets" class="form-control" type="number" />
                 <span asp-validation-for="AvailableTickets" class="text-danger"></span>
+            </div>
+            <div class="form-group">
+                <label class="control-label">Жанри</label>
+                <select name="GenreIds" class="form-control" multiple asp-items="ViewBag.GenreIds"></select>
+                <small class="form-text text-muted">Утримуйте Ctrl (Cmd на Mac), щоб вибрати кілька жанрів</small>
             </div>
             <div class="form-group">
                 <input type="submit" value="Додати" class="btn btn-primary" />
@@ -1570,61 +1919,97 @@ namespace ConcertSystemInfrastructure.Models
     @{
         await Html.RenderPartialAsync("_ValidationScriptsPartial");
     }
+    <script>
+        $(document).ready(function () {
+            var concertDateInput = $("#ConcertDate");
+            var helpText = $("#concertDateHelp");
+
+            function validateDate() {
+                var selectedDate = new Date(concertDateInput.val());
+                var minAllowedDate = new Date();
+                minAllowedDate.setMonth(minAllowedDate.getMonth() + 1);
+
+                if (selectedDate < minAllowedDate) {
+                    helpText.removeClass("text-muted").addClass("text-danger");
+                    concertDateInput.addClass("is-invalid");
+                } else {
+                    helpText.removeClass("text-danger").addClass("text-muted");
+                    concertDateInput.removeClass("is-invalid");
+                }
+            }
+
+            concertDateInput.on("change", validateDate);
+
+            $("form").on("submit", function (e) {
+                validateDate();
+                if (concertDateInput.hasClass("is-invalid")) {
+                    e.preventDefault();
+                }
+            });
+        });
+    </script>
 }
 
 // ==== Views\Concerts\Delete.cshtml ====
 @model ConcertSystemDomain.Model.Concert
 
 @{
-    ViewData["Title"] = "Delete";
+    ViewData["Title"] = "Видалити концерт";
 }
 
-<h1>Delete</h1>
+<h1>Видалити концерт</h1>
 
-<h3>Are you sure you want to delete this?</h3>
+<h3>Ви впевнені, що хочете видалити цей концерт?</h3>
 <div>
-    <h4>Concert</h4>
     <hr />
     <dl class="row">
-        <dt class = "col-sm-2">
+        <dt class="col-sm-2">
             @Html.DisplayNameFor(model => model.ConcertDate)
         </dt>
-        <dd class = "col-sm-10">
+        <dd class="col-sm-10">
             @Html.DisplayFor(model => model.ConcertDate)
         </dd>
-        <dt class = "col-sm-2">
+        <dt class="col-sm-2">
             @Html.DisplayNameFor(model => model.Location)
         </dt>
-        <dd class = "col-sm-10">
+        <dd class="col-sm-10">
             @Html.DisplayFor(model => model.Location)
         </dd>
-        <dt class = "col-sm-2">
+        <dt class="col-sm-2">
             @Html.DisplayNameFor(model => model.TotalTickets)
         </dt>
-        <dd class = "col-sm-10">
+        <dd class="col-sm-10">
             @Html.DisplayFor(model => model.TotalTickets)
         </dd>
-        <dt class = "col-sm-2">
+        <dt class="col-sm-2">
             @Html.DisplayNameFor(model => model.AvailableTickets)
         </dt>
-        <dd class = "col-sm-10">
+        <dd class="col-sm-10">
             @Html.DisplayFor(model => model.AvailableTickets)
         </dd>
-        <dt class = "col-sm-2">
+        <dt class="col-sm-2">
             @Html.DisplayNameFor(model => model.Artist)
         </dt>
-        <dd class = "col-sm-10">
+        <dd class="col-sm-10">
             @Html.DisplayFor(model => model.Artist.FullName)
         </dd>
+        <dt class="col-sm-2">
+            Жанри
+        </dt>
+        <dd class="col-sm-10">
+            @foreach (var genre in Model.Genres)
+            {
+                <span>@genre.Name</span>
+            }
+        </dd>
     </dl>
-    
+
     <form asp-action="Delete">
         <input type="hidden" asp-for="Id" />
-        <input type="submit" value="Delete" class="btn btn-danger" /> |
-        <a asp-action="Index">Back to List</a>
+        <input type="submit" value="Видалити" class="btn btn-danger" /> |
+        <a asp-action="Index">Повернутися до списку</a>
     </form>
 </div>
-
 
 // ==== Views\Concerts\Details.cshtml ====
 @model ConcertSystemDomain.Model.Concert
@@ -1681,43 +2066,47 @@ namespace ConcertSystemInfrastructure.Models
 @model ConcertSystemDomain.Model.Concert
 
 @{
-    ViewData["Title"] = "Редагувати концерт";
+    ViewData["Title"] = "Редагувати подію";
 }
 
-<h1>Редагувати концерт</h1>
+<h1>Редагувати подію</h1>
 
-<h4>Концерт</h4>
+<h4>Подія</h4>
 <hr />
 <div class="row">
     <div class="col-md-4">
         <form asp-action="Edit">
-            <div asp-validation-summary="ModelOnly" class="text-danger"></div>
+            <input type="hidden" asp-for="Id" />
             <div class="form-group">
                 <label class="control-label">Артист</label>
                 <select asp-for="ArtistId" class="form-control" asp-items="ViewBag.ArtistId"></select>
                 <span asp-validation-for="ArtistId" class="text-danger"></span>
             </div>
             <div class="form-group">
-                <label class="control-label">Дата концерту</label>
-                <input asp-for="ConcertDate" class="form-control" />
-                <span asp-validation-for="ConcertDate" class="text-danger"></span>
+                <label class="control-label">Дата події</label>
+                <input asp-for="ConcertDate" class="form-control" type="datetime-local" />
+                <small id="concertDateHelp" class="form-text text-muted validation-message">Подія має бути запланована щонайменше за місяць від поточної дати</small>
             </div>
             <div class="form-group">
-                <label class="control-label">Місце проведення</label>
+                <label class="control-label">Місто проведення</label>
                 <input asp-for="Location" class="form-control" />
                 <span asp-validation-for="Location" class="text-danger"></span>
             </div>
             <div class="form-group">
                 <label class="control-label">Загальна кількість квитків</label>
-                <input asp-for="TotalTickets" class="form-control" />
+                <input asp-for="TotalTickets" class="form-control" type="number" />
                 <span asp-validation-for="TotalTickets" class="text-danger"></span>
             </div>
             <div class="form-group">
                 <label class="control-label">Доступні квитки</label>
-                <input asp-for="AvailableTickets" class="form-control" />
+                <input asp-for="AvailableTickets" class="form-control" type="number" />
                 <span asp-validation-for="AvailableTickets" class="text-danger"></span>
             </div>
-            <input type="hidden" asp-for="Id" />
+            <div class="form-group">
+                <label class="control-label">Жанри</label>
+                <select name="GenreIds" class="form-control" multiple asp-items="ViewBag.GenreIds"></select>
+                <small class="form-text text-muted">Утримуйте Ctrl (Cmd на Mac), щоб вибрати кілька жанрів</small>
+            </div>
             <div class="form-group">
                 <input type="submit" value="Зберегти" class="btn btn-primary" />
             </div>
@@ -1733,115 +2122,113 @@ namespace ConcertSystemInfrastructure.Models
     @{
         await Html.RenderPartialAsync("_ValidationScriptsPartial");
     }
+    <script>
+        $(document).ready(function () {
+            var concertDateInput = $("#ConcertDate");
+            var helpText = $("#concertDateHelp");
+
+            function validateDate() {
+                var selectedDate = new Date(concertDateInput.val());
+                var minAllowedDate = new Date();
+                minAllowedDate.setMonth(minAllowedDate.getMonth() + 1);
+
+                if (selectedDate < minAllowedDate) {
+                    helpText.removeClass("text-muted").addClass("text-danger");
+                    concertDateInput.addClass("is-invalid");
+                } else {
+                    helpText.removeClass("text-danger").addClass("text-muted");
+                    concertDateInput.removeClass("is-invalid");
+                }
+            }
+
+            concertDateInput.on("change", validateDate);
+
+            $("form").on("submit", function (e) {
+                validateDate();
+                if (concertDateInput.hasClass("is-invalid")) {
+                    e.preventDefault();
+                }
+            });
+
+            validateDate();
+        });
+    </script>
 }
 
 // ==== Views\Concerts\Index.cshtml ====
 @model IEnumerable<ConcertSystemDomain.Model.Concert>
 
 @{
-    ViewData["Title"] = "Концерти";
+    ViewData["Title"] = "Події";
 }
 
-<h1>Концерти</h1>
+<h1>Події</h1>
 
-<!-- Кнопка для відкриття панелі фільтрації -->
-<div class="filter-panel">
-    <button class="btn btn-primary" onclick="toggleFilterPanel()">☰ Фільтри</button>
-</div>
+<!-- Відображення повідомлень -->
+@if (TempData["SuccessMessage"] != null)
+{
+    <div class="alert alert-success" role="alert">
+        @TempData["SuccessMessage"]
+    </div>
+}
+@if (TempData["ErrorMessage"] != null)
+{
+    <div class="alert alert-danger" role="alert">
+        @TempData["ErrorMessage"]
+    </div>
+}
 
-<!-- Панель фільтрації -->
-<div id="filterPanel" class="filter-panel-content" style="display: none;">
-    <form asp-action="Index" method="get">
-        <div class="form-group">
-            <label>Артист:</label>
-            <select name="artistFilter" class="form-control" asp-items="@(new SelectList(ViewBag.Artists))">
-                <option value="">Всі артисти</option>
-            </select>
-        </div>
-        <div class="form-group">
-            <label>Жанр:</label>
-            <select name="genreFilter" class="form-control" asp-items="@(new SelectList(ViewBag.Genres))">
-                <option value="">Всі жанри</option>
-            </select>
-        </div>
-        <div class="form-group">
-            <label>Місце проведення:</label>
-            <select name="locationFilter" class="form-control" asp-items="@(new SelectList(ViewBag.Locations))">
-                <option value="">Всі місця</option>
-            </select>
-        </div>
-        <div class="form-group">
-            <label>Дата проведення:</label>
-            <input type="date" name="dateFilter" class="form-control" />
-        </div>
-        <button type="submit" class="btn btn-primary">Застосувати</button>
-    </form>
-</div>
+<p>
+    <a asp-action="Create" class="btn btn-primary">Додати подію</a>
+</p>
 
-<!-- Таблиця концертів -->
-<table class="table">
-    <thead>
-        <tr>
-            <th>Дата концерту</th>
-            <th>Місце проведення</th>
-            <th>Загальна кількість квитків</th>
-            <th>Доступні квитки</th>
-            <th>Артист</th>
-            <th>Жанри</th>
-            <th>Дії</th>
-        </tr>
-    </thead>
-    <tbody>
-        @foreach (var item in Model)
-        {
+<!-- Перевірка, чи є події -->
+@if (Model.Any())
+{
+    <!-- Таблиця подій -->
+    <table class="table">
+        <thead>
             <tr>
-                <td>@Html.DisplayFor(modelItem => item.ConcertDate)</td>
-                <td>@Html.DisplayFor(modelItem => item.Location)</td>
-                <td>@Html.DisplayFor(modelItem => item.TotalTickets)</td>
-                <td>@Html.DisplayFor(modelItem => item.AvailableTickets)</td>
-                <td>@Html.DisplayFor(modelItem => item.Artist.FullName)</td>
-                <td>
-                    @foreach (var genre in item.Genres)
-                    {
-                        <span>@genre.Name</span>
-                    }
-                </td>
-                <td>
-                    <a asp-action="Edit" asp-route-id="@item.Id" class="btn btn-sm btn-secondary">Редагувати</a>
-                    <a asp-action="Details" asp-route-id="@item.Id" class="btn btn-sm btn-info">Деталі</a>
-                    <a asp-action="Delete" asp-route-id="@item.Id" class="btn btn-sm btn-danger">Видалити</a>
-                </td>
+                <th>Дата події</th>
+                <th>Місто проведення</th>
+                <th>Загальна кількість квитків</th>
+                <th>Доступні квитки</th>
+                <th>Артист</th>
+                <th>Жанри</th>
+                <th>Дії</th>
             </tr>
-        }
-    </tbody>
-</table>
-
-<!-- Стилі для панелі фільтрації -->
-<style>
-    .filter-panel {
-        margin-bottom: 20px;
-    }
-
-    .filter-panel-content {
-        background-color: #f8f9fa;
-        padding: 20px;
-        border-radius: 10px;
-        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-        margin-bottom: 20px;
-    }
-</style>
-
-<!-- Скрипт для відкриття/закриття панелі фільтрації -->
-<script>
-    function toggleFilterPanel() {
-        var panel = document.getElementById("filterPanel");
-        if (panel.style.display === "none") {
-            panel.style.display = "block";
-        } else {
-            panel.style.display = "none";
-        }
-    }
-</script>
+        </thead>
+        <tbody>
+            @foreach (var item in Model)
+            {
+                <tr>
+                    <td>@Html.DisplayFor(modelItem => item.ConcertDate)</td>
+                    <td>@Html.DisplayFor(modelItem => item.Location)</td>
+                    <td>@Html.DisplayFor(modelItem => item.TotalTickets)</td>
+                    <td>@Html.DisplayFor(modelItem => item.AvailableTickets)</td>
+                    <td>@Html.DisplayFor(modelItem => item.Artist.FullName)</td>
+                    <td>
+                        @foreach (var genre in item.Genres)
+                        {
+                            <span>@genre.Name</span>
+                        }
+                    </td>
+                    <td>
+                        <a asp-action="Edit" asp-route-id="@item.Id" class="btn btn-sm btn-secondary">Редагувати</a>
+                        <a asp-action="Delete" asp-route-id="@item.Id" class="btn btn-sm btn-danger">Видалити</a>
+                        <a asp-action="BuyTicket" asp-route-id="@item.Id" class="btn btn-sm btn-success">Купити квиток</a>
+                    </td>
+                </tr>
+            }
+        </tbody>
+    </table>
+}
+else
+{
+    <div class="alert alert-info" role="alert">
+        Вибачте, схожих подій немає, оберіть інші фільтри.
+    </div>
+}
 
 // ==== Views\Genres\Create.cshtml ====
 @model ConcertSystemDomain.Model.Genre
@@ -2515,29 +2902,73 @@ namespace ConcertSystemInfrastructure.Models
 <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>@ViewData["Title"] - Концертна система</title>
+    <title>@ViewData["Title"] - ConcertSystem</title>
     <link rel="stylesheet" href="~/lib/bootstrap/dist/css/bootstrap.min.css" />
     <link rel="stylesheet" href="~/css/site.css" asp-append-version="true" />
 </head>
 <body>
     <header>
         <nav class="navbar navbar-expand-sm navbar-toggleable-sm navbar-light bg-white border-bottom box-shadow mb-3">
-            <div class="container-fluid">
-                <a class="navbar-brand" asp-area="" asp-controller="Concerts" asp-action="Index">Концертна система</a>
+            <div class="container">
+                <a class="navbar-brand" asp-area="" asp-controller="Concerts" asp-action="Index">ConcertSystem</a>
                 <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target=".navbar-collapse" aria-controls="navbarSupportedContent"
-                        aria-expanded="false" aria-label="Перемикач навігації">
+                        aria-expanded="false" aria-label="Toggle navigation">
                     <span class="navbar-toggler-icon"></span>
                 </button>
                 <div class="navbar-collapse collapse d-sm-inline-flex justify-content-between">
                     <ul class="navbar-nav flex-grow-1">
                         <li class="nav-item">
+                            <a class="nav-link text-dark" asp-area="" asp-controller="Home" asp-action="Index">Головна</a>
+                        </li>
+                        <!-- Випадаюче меню для подій із фільтрами -->
+                        <li class="nav-item dropdown">
+                            <a class="nav-link dropdown-toggle text-dark" href="#" id="concertsDropdown" role="button" data-bs-toggle="dropdown" aria-expanded="false">
+                                Події
+                            </a>
+                            <div class="dropdown-menu" aria-labelledby="concertsDropdown">
+                                <form asp-controller="Concerts" asp-action="Index" method="get" class="p-3">
+                                    <div class="form-group">
+                                        <label>Артист:</label>
+                                        <select name="artistFilter" class="form-control">
+                                            <option value="">Всі артисти</option>
+                                            @foreach (var artist in (List<string>)ViewData["Artists"] ?? new List<string>())
+                                            {
+                                                <option value="@artist">@artist</option>
+                                            }
+                                        </select>
+                                    </div>
+                                    <div class="form-group">
+                                        <label>Жанр:</label>
+                                        <select name="genreFilter" class="form-control">
+                                            <option value="">Всі жанри</option>
+                                            @foreach (var genre in (List<string>)ViewData["Genres"] ?? new List<string>())
+                                            {
+                                                <option value="@genre">@genre</option>
+                                            }
+                                        </select>
+                                    </div>
+                                    <div class="form-group">
+                                        <label>Місто проведення:</label>
+                                        <select name="locationFilter" class="form-control">
+                                            <option value="">Всі міста</option>
+                                            @foreach (var location in (List<string>)ViewData["Locations"] ?? new List<string>())
+                                            {
+                                                <option value="@location">@location</option>
+                                            }
+                                        </select>
+                                    </div>
+                                    <div class="form-group">
+                                        <label>Дата події:</label>
+                                        <input type="date" name="dateFilter" class="form-control" />
+                                    </div>
+                                    <button type="submit" class="btn btn-primary mt-2">Фільтрувати</button>
+                                </form>
+                                <div class="dropdown-divider"></div>
+                                <a class="dropdown-item" asp-controller="Concerts" asp-action="Index">Всі події</a>
+                            </div>
+                        </li>
+                        <li class="nav-item">
                             <a class="nav-link text-dark" asp-area="" asp-controller="Artists" asp-action="Index">Артисти</a>
-                        </li>
-                        <li class="nav-item">
-                            <a class="nav-link text-dark" asp-area="" asp-controller="Concerts" asp-action="Index">Концерти</a>
-                        </li>
-                        <li class="nav-item">
-                            <a class="nav-link text-dark" asp-area="" asp-controller="Home" asp-action="Privacy">Політика конфіденційності</a>
                         </li>
                     </ul>
                 </div>
@@ -2552,12 +2983,14 @@ namespace ConcertSystemInfrastructure.Models
 
     <footer class="border-top footer text-muted">
         <div class="container">
-            &copy; 2025 - Концертна система - <a asp-area="" asp-controller="Home" asp-action="Privacy">Політика конфіденційності</a>
+            © 2025 - ConcertSystem - <a asp-area="" asp-controller="Home" asp-action="Privacy">Політика конфіденційності</a>
         </div>
     </footer>
+
     <script src="~/lib/jquery/dist/jquery.min.js"></script>
     <script src="~/lib/bootstrap/dist/js/bootstrap.bundle.min.js"></script>
     <script src="~/js/site.js" asp-append-version="true"></script>
+
     @await RenderSectionAsync("Scripts", required: false)
 </body>
 </html>
