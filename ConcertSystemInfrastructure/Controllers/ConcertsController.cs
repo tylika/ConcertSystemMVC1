@@ -1,7 +1,7 @@
 ﻿using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
-using ConcertSystemDomain.Model;
-using ConcertSystemInfrastructure;
+using ConcertSystemDomain.Model; // Для доступу до моделей
+using ConcertSystemInfrastructure; // Для доступу до контексту
 using System;
 using System.Linq;
 using System.Threading.Tasks;
@@ -9,7 +9,7 @@ using Microsoft.AspNetCore.Mvc.Rendering;
 
 namespace ConcertSystemInfrastructure.Controllers
 {
-    public class ConcertsController : Controller // Переконуємося, що успадковується від Controller
+    public class ConcertsController : Controller
     {
         private readonly ConcertTicketSystemContext _context;
 
@@ -241,21 +241,25 @@ namespace ConcertSystemInfrastructure.Controllers
                 return RedirectToAction(nameof(Index));
             }
 
+            // Передаємо концерт у ViewBag для відображення інформації
             ViewBag.Concert = concert;
-            return View(new Ticket { ConcertId = concert.Id });
+            // Передаємо список доступних квитків для концерту (якщо вони вже створені)
+            ViewBag.Tickets = await _context.Tickets
+                .Where(t => t.ConcertId == concert.Id && t.Status == "Available")
+                .ToListAsync();
+
+            // Повертаємо форму для введення даних глядача
+            return View(new Spectator());
         }
 
         // POST: Concerts/BuyTicket/5
         [HttpPost]
         [ValidateAntiForgeryToken]
-        public async Task<IActionResult> BuyTicket(int id, [Bind("Id,ConcertId,BuyerName")] Ticket ticket)
+        public async Task<IActionResult> BuyTicket(int id, [Bind("FullName,Phone,Email")] Spectator spectator, int? ticketId)
         {
-            if (id != ticket.ConcertId)
-            {
-                return NotFound();
-            }
-
-            var concert = await _context.Concerts.FindAsync(id);
+            var concert = await _context.Concerts
+                .Include(c => c.Tickets)
+                .FirstOrDefaultAsync(m => m.Id == id);
             if (concert == null)
             {
                 return NotFound();
@@ -266,21 +270,67 @@ namespace ConcertSystemInfrastructure.Controllers
                 TempData["ErrorMessage"] = "На жаль, квитки на цей концерт закінчилися.";
                 return RedirectToAction(nameof(Index));
             }
-            ModelState.Remove("Artist");
-            ModelState.Remove("Location");
-            if (ModelState.IsValid)
-            {
-                _context.Add(ticket);
-                concert.AvailableTickets--;
-                _context.Update(concert);
 
+            // Перевіряємо, чи глядач уже існує за email
+            var existingSpectator = await _context.Spectators
+                .FirstOrDefaultAsync(s => s.Email == spectator.Email);
+            if (existingSpectator == null)
+            {
+                // Якщо глядача немає, додаємо нового
+                if (!ModelState.IsValid)
+                {
+                    ViewBag.Concert = concert;
+                    ViewBag.Tickets = await _context.Tickets
+                        .Where(t => t.ConcertId == concert.Id && t.Status == "Available")
+                        .ToListAsync();
+                    return View(spectator);
+                }
+                _context.Spectators.Add(spectator);
                 await _context.SaveChangesAsync();
-                TempData["SuccessMessage"] = "Квиток успішно куплено!";
+                existingSpectator = spectator;
+            }
+
+            // Вибираємо квиток (якщо не передано ticketId, беремо перший доступний)
+            var ticket = ticketId.HasValue
+                ? await _context.Tickets.FirstOrDefaultAsync(t => t.Id == ticketId.Value && t.Status == "Available")
+                : await _context.Tickets.FirstOrDefaultAsync(t => t.ConcertId == concert.Id && t.Status == "Available");
+
+            if (ticket == null)
+            {
+                TempData["ErrorMessage"] = "Немає доступних квитків для цього концерту.";
                 return RedirectToAction(nameof(Index));
             }
 
-            ViewBag.Concert = concert;
-            return View(ticket);
+            // Створюємо покупку (Purchase)
+            var purchase = new Purchase
+            {
+                SpectatorId = existingSpectator.Id,
+                PurchaseDate = DateTime.Now,
+                Status = "Completed"
+            };
+            _context.Purchases.Add(purchase);
+            await _context.SaveChangesAsync();
+
+            // Створюємо елемент покупки (PurchaseItem)
+            var purchaseItem = new PurchaseItem
+            {
+                PurchaseId = purchase.Id,
+                TicketId = ticket.Id,
+                Quantity = 1, // Купуємо один квиток
+                Price = ticket.BasePrice
+            };
+            _context.PurchaseItems.Add(purchaseItem);
+
+            // Оновлюємо статус квитка та кількість доступних квитків
+            ticket.Status = "Sold";
+            concert.AvailableTickets--;
+            _context.Update(ticket);
+            _context.Update(concert);
+
+            await _context.SaveChangesAsync();
+
+            TempData["SuccessMessage"] = "Квиток успішно куплено!";
+            return RedirectToAction(nameof(Index));
         }
 
         private bool ConcertExists(int id)

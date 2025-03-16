@@ -1,7 +1,5 @@
-﻿using System;
-using System.Collections.Generic;
-using Microsoft.EntityFrameworkCore;
-using ConcertSystemDomain.Model;
+﻿using Microsoft.EntityFrameworkCore;
+using ConcertSystemDomain.Model; // Імпорт моделей
 
 namespace ConcertSystemInfrastructure
 {
@@ -130,8 +128,6 @@ namespace ConcertSystemInfrastructure
                 entity.Property(e => e.Row).HasMaxLength(10).IsUnicode(false);
                 entity.Property(e => e.Status).HasMaxLength(20).IsUnicode(false).HasDefaultValue("Available");
             });
-
-            // Видалено виклик OnModelCreatingPartial, якщо він не реалізований
         }
     }
 }

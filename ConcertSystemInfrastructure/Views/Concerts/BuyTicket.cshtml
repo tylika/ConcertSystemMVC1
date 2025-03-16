@@ -1,0 +1,61 @@
+﻿@model ConcertSystemDomain.Model.Spectator
+
+@{
+    ViewData["Title"] = "Купити квиток";
+    var concert = ViewBag.Concert as ConcertSystemDomain.Model.Concert;
+    var tickets = ViewBag.Tickets as List<ConcertSystemDomain.Model.Ticket>;
+}
+
+<h1>Купити квиток на концерт</h1>
+
+<h4>@concert.Artist.FullName - @concert.Location, @concert.ConcertDate.ToString("dd.MM.yyyy HH:mm")</h4>
+<p>Доступно квитків: @concert.AvailableTickets</p>
+<hr />
+
+<div class="row">
+    <div class="col-md-6">
+        <form asp-action="BuyTicket" asp-route-id="@concert.Id">
+            <div class="form-group">
+                <label asp-for="FullName" class="control-label">Повне ім'я</label>
+                <input asp-for="FullName" class="form-control" />
+                <span asp-validation-for="FullName" class="text-danger"></span>
+            </div>
+            <div class="form-group">
+                <label asp-for="Phone" class="control-label">Телефон (опціонально)</label>
+                <input asp-for="Phone" class="form-control" />
+                <span asp-validation-for="Phone" class="text-danger"></span>
+            </div>
+            <div class="form-group">
+                <label asp-for="Email" class="control-label">Email</label>
+                <input asp-for="Email" class="form-control" />
+                <span asp-validation-for="Email" class="text-danger"></span>
+            </div>
+
+            @if (tickets != null && tickets.Any())
+            {
+                <div class="form-group">
+                    <label class="control-label">Виберіть квиток</label>
+                    <select name="ticketId" class="form-control">
+                        @foreach (var ticket in tickets)
+                        {
+                            <option value="@ticket.Id">
+                                Ряд: @ticket.Row, Місце: @ticket.SeatNumber, Ціна: @ticket.BasePrice
+                            </option>
+                        }
+                    </select>
+                </div>
+            }
+
+            <div class="form-group">
+                <input type="submit" value="Купити" class="btn btn-success" />
+                <a asp-action="Index" class="btn btn-secondary">Скасувати</a>
+            </div>
+        </form>
+    </div>
+</div>
+
+@section Scripts {
+    @{
+        await Html.RenderPartialAsync("_ValidationScriptsPartial");
+    }
+}
