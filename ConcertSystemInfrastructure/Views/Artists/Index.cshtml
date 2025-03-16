@@ -1,0 +1,35 @@
+﻿@model IEnumerable<ConcertSystemDomain.Model.Artist>
+
+@{
+    ViewData["Title"] = "Артисти";
+}
+
+<h1>Артисти</h1>
+
+<p>
+    <a asp-action="Create" class="btn btn-primary">Додати артиста</a>
+</p>
+
+<table class="table">
+    <thead>
+        <tr>
+            <th>@Html.DisplayNameFor(model => model.FullName)</th> <!-- Автоматично відобразиться "Назва" -->
+            <th>@Html.DisplayNameFor(model => model.SocialMedia)</th>
+            <th>Дії</th>
+        </tr>
+    </thead>
+    <tbody>
+        @foreach (var item in Model)
+        {
+            <tr>
+                <td>@Html.DisplayFor(modelItem => item.FullName)</td>
+                <td>@Html.DisplayFor(modelItem => item.SocialMedia)</td>
+                <td>
+                    <a asp-action="Edit" asp-route-id="@item.Id" class="btn btn-sm btn-secondary">Редагувати</a>
+                    <a asp-action="Delete" asp-route-id="@item.Id" class="btn btn-sm btn-danger">Видалити</a>
+                    <a asp-action="Details" asp-route-id="@item.Id" class="btn btn-sm btn-info">Всі концерти артиста</a>
+                </td>
+            </tr>
+        }
+    </tbody>
+</table>

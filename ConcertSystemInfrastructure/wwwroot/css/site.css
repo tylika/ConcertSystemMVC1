@@ -1,0 +1,141 @@
+/* Основні кольори */
+:root {
+    --primary-color: #C3B1E1; /* Пастельно-фіолетовий */
+    --secondary-color: #E6E6FA; /* Лавандовий */
+    --background-color: #FAF9F6; /* Дуже світлий фон */
+    --text-color: #4A4A4A; /* М'який темний текст */
+    --hover-color: #A89CC8; /* Трохи темніший пастельний фіолетовий для ховеру */
+}
+
+/* Загальні стилі */
+body {
+    background-color: var(--background-color);
+    color: var(--text-color);
+    font-family: Arial, sans-serif;
+}
+
+/* Навігаційна панель */
+.navbar {
+    background-color: var(--primary-color) !important;
+}
+
+.navbar-brand, .nav-link {
+    color: var(--text-color) !important;
+}
+
+    .nav-link:hover {
+        color: var(--hover-color) !important;
+    }
+
+/* Кнопки */
+.btn-primary {
+    background-color: var(--primary-color);
+    border-color: var(--primary-color);
+    color: var(--text-color);
+}
+
+    .btn-primary:hover {
+        background-color: var(--hover-color);
+        border-color: var(--hover-color);
+    }
+
+.btn-secondary {
+    background-color: var(--secondary-color);
+    border-color: var(--secondary-color);
+    color: var(--text-color);
+}
+
+    .btn-secondary:hover {
+        background-color: var(--hover-color);
+        border-color: var(--hover-color);
+    }
+
+.btn-info {
+    background-color: #C3B1E1; /* Пастельно-фіолетовий */
+    border-color: #C3B1E1;
+    color: var(--text-color);
+}
+
+    .btn-info:hover {
+        background-color: #A89CC8; /* Трохи темніший пастельний фіолетовий */
+        border-color: #A89CC8;
+    }
+
+.btn-danger {
+    background-color: #FFB6C1; /* Пастельно-рожевий для видалення */
+    border-color: #FFB6C1;
+    color: var(--text-color);
+}
+
+    .btn-danger:hover {
+        background-color: #FFA07A; /* Трохи темніший пастельно-рожевий */
+        border-color: #FFA07A;
+    }
+
+/* Таблиці */
+.table {
+    width: 100%;
+    margin-bottom: 1rem;
+    background-color: white;
+    border-collapse: separate;
+    border-spacing: 0;
+    border-radius: 10px;
+    overflow: hidden;
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+}
+
+    .table th,
+    .table td {
+        padding: 12px;
+        text-align: left;
+        border-bottom: 1px solid #ddd;
+    }
+
+    .table th {
+        background-color: var(--primary-color);
+        color: var(--text-color);
+        font-weight: bold;
+    }
+
+    .table tbody tr:hover {
+        background-color: rgba(195, 177, 225, 0.1); /* Пастельно-фіолетовий з прозорістю */
+    }
+
+/* Футер */
+.footer {
+    background-color: var(--primary-color);
+    color: var(--text-color);
+    text-align: center;
+    padding: 10px 0;
+    position: absolute;
+    bottom: 0;
+    width: 100%;
+}
+/* Стилі для панелі фільтрації */
+.filter-panel {
+    margin-bottom: 20px;
+}
+
+.filter-panel-content {
+    background-color: #f8f9fa;
+    padding: 20px;
+    border-radius: 10px;
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+    margin-bottom: 20px;
+}
+
+/* Стилі для кнопки */
+.btn-primary {
+    background-color: #B39DDB; /* Пастельно-фіолетовий */
+    border-color: #B39DDB;
+    color: white;
+}
+
+    .btn-primary:hover {
+        background-color: #9575CD; /* Трохи темніший фіолетовий */
+        border-color: #9575CD;
+    }
+.text-danger {
+    font-size: 0.9em;
+    margin-top: 5px;
+}

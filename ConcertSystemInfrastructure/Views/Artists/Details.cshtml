@@ -1,0 +1,50 @@
+﻿@model ConcertSystemDomain.Model.Artist
+
+@{
+    ViewData["Title"] = "Всі концерти артиста";
+}
+
+<h1>Всі концерти артиста: @Html.DisplayFor(model => model.FullName)</h1>
+
+<div>
+    <hr />
+    @if (Model.Concerts.Any())
+    {
+        <table class="table">
+            <thead>
+                <tr>
+                    <th>Дата концерту</th>
+                    <th>Місто проведення</th>
+                    <th>Загальна кількість квитків</th>
+                    <th>Доступні квитки</th>
+                    <th>Жанри</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var concert in Model.Concerts)
+                {
+                    <tr>
+                        <td>@Html.DisplayFor(modelItem => concert.ConcertDate)</td>
+                        <td>@Html.DisplayFor(modelItem => concert.Location)</td>
+                        <td>@Html.DisplayFor(modelItem => concert.TotalTickets)</td>
+                        <td>@Html.DisplayFor(modelItem => concert.AvailableTickets)</td>
+                        <td>
+                            @foreach (var genre in concert.Genres)
+                            {
+                                <span>@genre.Name</span>
+                            }
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    }
+    else
+    {
+        <p>Цей артист поки що не має концертів.</p>
+    }
+</div>
+
+<div>
+    <a asp-action="Index">Повернутися до списку артистів</a>
+</div>

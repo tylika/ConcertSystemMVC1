@@ -1,0 +1,3118 @@
+# ConcertSystemDomain Project
+==================================================
+// ==== ConcertSystemDomain.csproj ====
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net9.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.EntityFrameworkCore" Version="9.0.0" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="9.0.0">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
+    <PackageReference Include="Microsoft.EntityFrameworkCore.SqlServer" Version="9.0.0" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Tools" Version="9.0.0">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
+    <PackageReference Include="Microsoft.Extensions.Configuration.Json" Version="9.0.0" />
+  </ItemGroup>
+
+</Project>
+
+
+// ==== Model\Artist.cs ====
+using System;
+using System.Collections.Generic;
+
+namespace ConcertSystemDomain.Model;
+
+public partial class Artist : Entity
+{
+    public string FullName { get; set; } = null!;
+
+    public string? SocialMedia { get; set; }
+
+    public virtual ICollection<Concert> Concerts { get; set; } = new List<Concert>();
+}
+
+
+// ==== Model\Concert.cs ====
+using System;
+using System.Collections.Generic;
+
+namespace ConcertSystemDomain.Model;
+
+public partial class Concert : Entity
+{
+    public int ArtistId { get; set; }
+
+    public DateTime ConcertDate { get; set; }
+
+    public string Location { get; set; } = null!;
+
+    public int TotalTickets { get; set; }
+
+    public int AvailableTickets { get; set; }
+
+    public virtual Artist Artist { get; set; } = null!;
+
+    public virtual ICollection<Ticket> Tickets { get; set; } = new List<Ticket>();
+
+    public virtual ICollection<Genre> Genres { get; set; } = new List<Genre>();
+}
+
+
+// ==== Model\Entity.cs ====
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Text;
+using System.Threading.Tasks;
+
+namespace ConcertSystemDomain.Model
+{
+    public abstract class Entity
+    {
+        public int Id { get; set; }
+    }
+}
+
+
+// ==== Model\Genre.cs ====
+using System;
+using System.Collections.Generic;
+
+namespace ConcertSystemDomain.Model;
+
+public partial class Genre : Entity
+{
+    public string Name { get; set; } = null!;
+
+    public virtual ICollection<Concert> Concerts { get; set; } = new List<Concert>();
+}
+
+
+// ==== Model\Purchase.cs ====
+using System;
+using System.Collections.Generic;
+
+namespace ConcertSystemDomain.Model;
+
+public partial class Purchase : Entity
+{
+    public int SpectatorId { get; set; }
+
+    public DateTime PurchaseDate { get; set; }
+
+    public string Status { get; set; } = null!;
+
+    public virtual ICollection<PurchaseItem> PurchaseItems { get; set; } = new List<PurchaseItem>();
+
+    public virtual Spectator Spectator { get; set; } = null!;
+}
+
+
+// ==== Model\PurchaseItem.cs ====
+using System;
+using System.Collections.Generic;
+
+namespace ConcertSystemDomain.Model;
+
+public partial class PurchaseItem : Entity
+{
+    public int PurchaseId { get; set; }
+
+    public int TicketId { get; set; }
+
+    public int Quantity { get; set; }
+
+    public decimal Price { get; set; }
+
+    public virtual Purchase Purchase { get; set; } = null!;
+
+    public virtual Ticket Ticket { get; set; } = null!;
+}
+
+
+// ==== Model\Spectator.cs ====
+using System;
+using System.Collections.Generic;
+
+namespace ConcertSystemDomain.Model;
+
+public partial class Spectator : Entity
+{
+    public string FullName { get; set; } = null!;
+
+    public string? Phone { get; set; }
+
+    public string Email { get; set; } = null!;
+
+    public virtual ICollection<Purchase> Purchases { get; set; } = new List<Purchase>();
+}
+
+
+// ==== Model\Ticket.cs ====
+using System;
+using System.Collections.Generic;
+
+namespace ConcertSystemDomain.Model;
+
+public partial class Ticket : Entity
+{
+    public int ConcertId { get; set; }
+
+    public string? Row { get; set; }
+
+    public int? SeatNumber { get; set; }
+
+    public decimal BasePrice { get; set; }
+
+    public string Status { get; set; } = null!;
+
+    public virtual Concert Concert { get; set; } = null!;
+
+    public virtual ICollection<PurchaseItem> PurchaseItems { get; set; } = new List<PurchaseItem>();
+}
+
+
+# ConcertSystemInfrastructure Project
+==================================================
+// ==== appsettings.json ====
+{
+    "ConnectionStrings": {
+        "DefaultConnection": "Server=DESKTOP-D2I193F\\SQLEXPRESS; Database=ConcertTicketSystem; Trusted_Connection=True; MultipleActiveResultSets=true"
+    },
+    "Logging": {
+        "LogLevel": {
+            "Default": "Information",
+            "Microsoft.AspNetCore": "Warning"
+        }
+    },
+    "AllowedHosts": "*"
+}
+
+// ==== Program.cs ====
+using ConcertSystemInfrastructure;
+using Microsoft.EntityFrameworkCore;
+
+var builder = WebApplication.CreateBuilder(args);
+
+// ������� ��� ��� ��� ���������� �� ���� �����
+var connectionString = builder.Configuration.GetConnectionString("DefaultConnection");
+builder.Services.AddDbContext<ConcertTicketSystemContext>(options =>
+    options.UseSqlServer(connectionString));
+
+// ���� ������
+builder.Services.AddControllersWithViews();
+
+var app = builder.Build();
+
+// ������������ middleware
+if (!app.Environment.IsDevelopment())
+{
+    app.UseExceptionHandler("/Home/Error");
+    app.UseHsts();
+}
+
+app.UseHttpsRedirection();
+app.UseStaticFiles();
+
+app.UseRouting();
+
+app.UseAuthorization();
+
+app.MapControllerRoute(
+    name: "default",
+    pattern: "{controller=Concerts}/{action=Index}/{id?}");
+
+app.Run();
+
+// ==== Controllers\ArtistsController.cs ====
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
+using ConcertSystemDomain.Model;
+using ConcertSystemInfrastructure;
+
+namespace ConcertSystemInfrastructure.Controllers
+{
+    public class ArtistsController : Controller
+    {
+        private readonly ConcertTicketSystemContext _context;
+
+        public ArtistsController(ConcertTicketSystemContext context)
+        {
+            _context = context;
+        }
+
+        // GET: Артисти
+        public async Task<IActionResult> Index()
+        {
+            return View(await _context.Artists.ToListAsync());
+        }
+
+        // GET: Деталі артиста/5
+        public async Task<IActionResult> Details(int? id)
+        {
+            if (id == null)
+            {
+                return NotFound();
+            }
+
+            var artist = await _context.Artists
+                .FirstOrDefaultAsync(m => m.Id == id);
+            if (artist == null)
+            {
+                return NotFound();
+            }
+
+            return View(artist);
+        }
+
+        // GET: Створити артиста
+        public IActionResult Create()
+        {
+            return View();
+        }
+
+        // POST: Створити артиста
+        [HttpPost]
+        [ValidateAntiForgeryToken]
+        public async Task<IActionResult> Create([Bind("FullName,SocialMedia,Id")] Artist artist)
+        {
+            if (ModelState.IsValid)
+            {
+                _context.Add(artist);
+                await _context.SaveChangesAsync();
+                return RedirectToAction(nameof(Index));
+            }
+            return View(artist);
+        }
+
+        // GET: Редагувати артиста/5
+        public async Task<IActionResult> Edit(int? id)
+        {
+            if (id == null)
+            {
+                return NotFound();
+            }
+
+            var artist = await _context.Artists.FindAsync(id);
+            if (artist == null)
+            {
+                return NotFound();
+            }
+            return View(artist);
+        }
+
+        // POST: Редагувати артиста/5
+        [HttpPost]
+        [ValidateAntiForgeryToken]
+        public async Task<IActionResult> Edit(int id, [Bind("FullName,SocialMedia,Id")] Artist artist)
+        {
+            if (id != artist.Id)
+            {
+                return NotFound();
+            }
+
+            if (ModelState.IsValid)
+            {
+                try
+                {
+                    _context.Update(artist);
+                    await _context.SaveChangesAsync();
+                }
+                catch (DbUpdateConcurrencyException)
+                {
+                    if (!ArtistExists(artist.Id))
+                    {
+                        return NotFound();
+                    }
+                    else
+                    {
+                        throw;
+                    }
+                }
+                return RedirectToAction(nameof(Index));
+            }
+            return View(artist);
+        }
+
+        // GET: Видалити артиста/5
+        public async Task<IActionResult> Delete(int? id)
+        {
+            if (id == null)
+            {
+                return NotFound();
+            }
+
+            var artist = await _context.Artists
+                .FirstOrDefaultAsync(m => m.Id == id);
+            if (artist == null)
+            {
+                return NotFound();
+            }
+
+            return View(artist);
+        }
+
+        // POST: Видалити артиста/5
+        [HttpPost, ActionName("Delete")]
+        [ValidateAntiForgeryToken]
+        public async Task<IActionResult> DeleteConfirmed(int id)
+        {
+            var artist = await _context.Artists.FindAsync(id);
+            if (artist != null)
+            {
+                _context.Artists.Remove(artist);
+            }
+
+            await _context.SaveChangesAsync();
+            return RedirectToAction(nameof(Index));
+        }
+
+        private bool ArtistExists(int id)
+        {
+            return _context.Artists.Any(e => e.Id == id);
+        }
+    }
+}
+
+// ==== Controllers\ConcertsController.cs ====
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
+using ConcertSystemDomain.Model;
+using ConcertSystemInfrastructure;
+using System.Linq;
+
+namespace ConcertSystemInfrastructure.Controllers
+{
+    public class ConcertsController : Controller
+    {
+        private readonly ConcertTicketSystemContext _context;
+
+        public ConcertsController(ConcertTicketSystemContext context)
+        {
+            _context = context;
+        }
+
+        // GET: Concerts
+        public async Task<IActionResult> Index(string artistFilter, string genreFilter, string locationFilter, DateTime? dateFilter)
+        {
+            var concerts = _context.Concerts
+                .Include(c => c.Artist)
+                .Include(c => c.Genres)
+                .AsQueryable();
+
+            // Фільтрація за артистом
+            if (!string.IsNullOrEmpty(artistFilter))
+            {
+                concerts = concerts.Where(c => c.Artist.FullName.Contains(artistFilter));
+            }
+
+            // Фільтрація за жанром
+            if (!string.IsNullOrEmpty(genreFilter))
+            {
+                concerts = concerts.Where(c => c.Genres.Any(g => g.Name == genreFilter));
+            }
+
+            // Фільтрація за місцем проведення
+            if (!string.IsNullOrEmpty(locationFilter))
+            {
+                concerts = concerts.Where(c => c.Location.Contains(locationFilter));
+            }
+
+            // Фільтрація за датою
+            if (dateFilter.HasValue)
+            {
+                concerts = concerts.Where(c => c.ConcertDate.Date == dateFilter.Value.Date);
+            }
+
+            // Отримання списків для фільтрів
+            ViewBag.Artists = await _context.Artists.Select(a => a.FullName).Distinct().ToListAsync();
+            ViewBag.Genres = await _context.Genres.Select(g => g.Name).Distinct().ToListAsync();
+            ViewBag.Locations = await _context.Concerts.Select(c => c.Location).Distinct().ToListAsync();
+
+            return View(await concerts.ToListAsync());
+        }
+
+        // Інші методи (Create, Edit, Delete тощо) залишаються без змін
+    }
+}
+
+// ==== Controllers\GenresController.cs ====
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
+using ConcertSystemDomain.Model;
+using ConcertSystemInfrastructure;
+
+namespace ConcertSystemInfrastructure.Controllers
+{
+    public class GenresController : Controller
+    {
+        private readonly ConcertTicketSystemContext _context;
+
+        public GenresController(ConcertTicketSystemContext context)
+        {
+            _context = context;
+        }
+
+        // GET: Genres
+        public async Task<IActionResult> Index()
+        {
+            return View(await _context.Genres.ToListAsync());
+        }
+
+        // GET: Genres/Details/5
+        public async Task<IActionResult> Details(int? id)
+        {
+            if (id == null)
+            {
+                return NotFound();
+            }
+
+            var genre = await _context.Genres
+                .FirstOrDefaultAsync(m => m.Id == id);
+            if (genre == null)
+            {
+                return NotFound();
+            }
+
+            return View(genre);
+        }
+
+        // GET: Genres/Create
+        public IActionResult Create()
+        {
+            return View();
+        }
+
+        // POST: Genres/Create
+        [HttpPost]
+        [ValidateAntiForgeryToken]
+        public async Task<IActionResult> Create([Bind("Name,Id")] Genre genre)
+        {
+            if (ModelState.IsValid)
+            {
+                _context.Add(genre);
+                await _context.SaveChangesAsync();
+                return RedirectToAction(nameof(Index));
+            }
+            return View(genre);
+        }
+
+        // GET: Genres/Edit/5
+        public async Task<IActionResult> Edit(int? id)
+        {
+            if (id == null)
+            {
+                return NotFound();
+            }
+
+            var genre = await _context.Genres.FindAsync(id);
+            if (genre == null)
+            {
+                return NotFound();
+            }
+            return View(genre);
+        }
+
+        // POST: Genres/Edit/5
+        [HttpPost]
+        [ValidateAntiForgeryToken]
+        public async Task<IActionResult> Edit(int id, [Bind("Name,Id")] Genre genre)
+        {
+            if (id != genre.Id)
+            {
+                return NotFound();
+            }
+
+            if (ModelState.IsValid)
+            {
+                try
+                {
+                    _context.Update(genre);
+                    await _context.SaveChangesAsync();
+                }
+                catch (DbUpdateConcurrencyException)
+                {
+                    if (!GenreExists(genre.Id))
+                    {
+                        return NotFound();
+                    }
+                    else
+                    {
+                        throw;
+                    }
+                }
+                return RedirectToAction(nameof(Index));
+            }
+            return View(genre);
+        }
+
+        // GET: Genres/Delete/5
+        public async Task<IActionResult> Delete(int? id)
+        {
+            if (id == null)
+            {
+                return NotFound();
+            }
+
+            var genre = await _context.Genres
+                .FirstOrDefaultAsync(m => m.Id == id);
+            if (genre == null)
+            {
+                return NotFound();
+            }
+
+            return View(genre);
+        }
+
+        // POST: Genres/Delete/5
+        [HttpPost, ActionName("Delete")]
+        [ValidateAntiForgeryToken]
+        public async Task<IActionResult> DeleteConfirmed(int id)
+        {
+            var genre = await _context.Genres.FindAsync(id);
+            if (genre != null)
+            {
+                _context.Genres.Remove(genre);
+                await _context.SaveChangesAsync();
+            }
+
+            return RedirectToAction(nameof(Index));
+        }
+
+        private bool GenreExists(int id)
+        {
+            return _context.Genres.Any(e => e.Id == id);
+        }
+    }
+}
+
+// ==== Controllers\HomeController.cs ====
+using ConcertSystemInfrastructure.Models;
+using Microsoft.AspNetCore.Mvc;
+using System.Diagnostics;
+
+public class HomeController : Controller
+{
+    private readonly ILogger<HomeController> _logger;
+
+    public HomeController(ILogger<HomeController> logger)
+    {
+        _logger = logger;
+    }
+
+    public IActionResult Index()
+    {
+        // ��������������� �� ������� � ����������
+        return RedirectToAction("Index", "Concerts");
+    }
+
+    public IActionResult Privacy()
+    {
+        return View();
+    }
+
+    [ResponseCache(Duration = 0, Location = ResponseCacheLocation.None, NoStore = true)]
+    public IActionResult Error()
+    {
+        return View(new ErrorViewModel { RequestId = Activity.Current?.Id ?? HttpContext.TraceIdentifier });
+    }
+}
+
+// ==== Controllers\PurchaseItemsController.cs ====
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Threading.Tasks;
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Mvc.Rendering;
+using Microsoft.EntityFrameworkCore;
+using ConcertSystemDomain.Model;
+using ConcertSystemInfrastructure;
+
+namespace ConcertSystemInfrastructure.Controllers
+{
+    public class PurchaseItemsController : Controller
+    {
+        private readonly ConcertTicketSystemContext _context;
+
+        public PurchaseItemsController(ConcertTicketSystemContext context)
+        {
+            _context = context;
+        }
+
+        // GET: PurchaseItems
+        public async Task<IActionResult> Index()
+        {
+            var concertTicketSystemContext = _context.PurchaseItems.Include(p => p.Purchase).Include(p => p.Ticket);
+            return View(await concertTicketSystemContext.ToListAsync());
+        }
+
+        // GET: PurchaseItems/Details/5
+        public async Task<IActionResult> Details(int? id)
+        {
+            if (id == null)
+            {
+                return NotFound();
+            }
+
+            var purchaseItem = await _context.PurchaseItems
+                .Include(p => p.Purchase)
+                .Include(p => p.Ticket)
+                .FirstOrDefaultAsync(m => m.Id == id);
+            if (purchaseItem == null)
+            {
+                return NotFound();
+            }
+
+            return View(purchaseItem);
+        }
+
+        // GET: PurchaseItems/Create
+        public IActionResult Create()
+        {
+            ViewData["PurchaseId"] = new SelectList(_context.Purchases, "Id", "Status");
+            ViewData["TicketId"] = new SelectList(_context.Tickets, "Id", "Status");
+            return View();
+        }
+
+        // POST: PurchaseItems/Create
+        // To protect from overposting attacks, enable the specific properties you want to bind to.
+        // For more details, see http://go.microsoft.com/fwlink/?LinkId=317598.
+        [HttpPost]
+        [ValidateAntiForgeryToken]
+        public async Task<IActionResult> Create([Bind("PurchaseId,TicketId,Quantity,Price,Id")] PurchaseItem purchaseItem)
+        {
+            if (ModelState.IsValid)
+            {
+                _context.Add(purchaseItem);
+                await _context.SaveChangesAsync();
+                return RedirectToAction(nameof(Index));
+            }
+            ViewData["PurchaseId"] = new SelectList(_context.Purchases, "Id", "Status", purchaseItem.PurchaseId);
+            ViewData["TicketId"] = new SelectList(_context.Tickets, "Id", "Status", purchaseItem.TicketId);
+            return View(purchaseItem);
+        }
+
+        // GET: PurchaseItems/Edit/5
+        public async Task<IActionResult> Edit(int? id)
+        {
+            if (id == null)
+            {
+                return NotFound();
+            }
+
+            var purchaseItem = await _context.PurchaseItems.FindAsync(id);
+            if (purchaseItem == null)
+            {
+                return NotFound();
+            }
+            ViewData["PurchaseId"] = new SelectList(_context.Purchases, "Id", "Status", purchaseItem.PurchaseId);
+            ViewData["TicketId"] = new SelectList(_context.Tickets, "Id", "Status", purchaseItem.TicketId);
+            return View(purchaseItem);
+        }
+
+        // POST: PurchaseItems/Edit/5
+        // To protect from overposting attacks, enable the specific properties you want to bind to.
+        // For more details, see http://go.microsoft.com/fwlink/?LinkId=317598.
+        [HttpPost]
+        [ValidateAntiForgeryToken]
+        public async Task<IActionResult> Edit(int id, [Bind("PurchaseId,TicketId,Quantity,Price,Id")] PurchaseItem purchaseItem)
+        {
+            if (id != purchaseItem.Id)
+            {
+                return NotFound();
+            }
+
+            if (ModelState.IsValid)
+            {
+                try
+                {
+                    _context.Update(purchaseItem);
+                    await _context.SaveChangesAsync();
+                }
+                catch (DbUpdateConcurrencyException)
+                {
+                    if (!PurchaseItemExists(purchaseItem.Id))
+                    {
+                        return NotFound();
+                    }
+                    else
+                    {
+                        throw;
+                    }
+                }
+                return RedirectToAction(nameof(Index));
+            }
+            ViewData["PurchaseId"] = new SelectList(_context.Purchases, "Id", "Status", purchaseItem.PurchaseId);
+            ViewData["TicketId"] = new SelectList(_context.Tickets, "Id", "Status", purchaseItem.TicketId);
+            return View(purchaseItem);
+        }
+
+        // GET: PurchaseItems/Delete/5
+        public async Task<IActionResult> Delete(int? id)
+        {
+            if (id == null)
+            {
+                return NotFound();
+            }
+
+            var purchaseItem = await _context.PurchaseItems
+                .Include(p => p.Purchase)
+                .Include(p => p.Ticket)
+                .FirstOrDefaultAsync(m => m.Id == id);
+            if (purchaseItem == null)
+            {
+                return NotFound();
+            }
+
+            return View(purchaseItem);
+        }
+
+        // POST: PurchaseItems/Delete/5
+        [HttpPost, ActionName("Delete")]
+        [ValidateAntiForgeryToken]
+        public async Task<IActionResult> DeleteConfirmed(int id)
+        {
+            var purchaseItem = await _context.PurchaseItems.FindAsync(id);
+            if (purchaseItem != null)
+            {
+                _context.PurchaseItems.Remove(purchaseItem);
+            }
+
+            await _context.SaveChangesAsync();
+            return RedirectToAction(nameof(Index));
+        }
+
+        private bool PurchaseItemExists(int id)
+        {
+            return _context.PurchaseItems.Any(e => e.Id == id);
+        }
+    }
+}
+
+
+// ==== Controllers\PurchasesController.cs ====
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Threading.Tasks;
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Mvc.Rendering;
+using Microsoft.EntityFrameworkCore;
+using ConcertSystemDomain.Model;
+using ConcertSystemInfrastructure;
+
+namespace ConcertSystemInfrastructure.Controllers
+{
+    public class PurchasesController : Controller
+    {
+        private readonly ConcertTicketSystemContext _context;
+
+        public PurchasesController(ConcertTicketSystemContext context)
+        {
+            _context = context;
+        }
+
+        // GET: Purchases
+        public async Task<IActionResult> Index()
+        {
+            var concertTicketSystemContext = _context.Purchases.Include(p => p.Spectator);
+            return View(await concertTicketSystemContext.ToListAsync());
+        }
+
+        // GET: Purchases/Details/5
+        public async Task<IActionResult> Details(int? id)
+        {
+            if (id == null)
+            {
+                return NotFound();
+            }
+
+            var purchase = await _context.Purchases
+                .Include(p => p.Spectator)
+                .FirstOrDefaultAsync(m => m.Id == id);
+            if (purchase == null)
+            {
+                return NotFound();
+            }
+
+            return View(purchase);
+        }
+
+        // GET: Purchases/Create
+        public IActionResult Create()
+        {
+            ViewData["SpectatorId"] = new SelectList(_context.Spectators, "Id", "Email");
+            return View();
+        }
+
+        // POST: Purchases/Create
+        // To protect from overposting attacks, enable the specific properties you want to bind to.
+        // For more details, see http://go.microsoft.com/fwlink/?LinkId=317598.
+        [HttpPost]
+        [ValidateAntiForgeryToken]
+        public async Task<IActionResult> Create([Bind("SpectatorId,PurchaseDate,Status,Id")] Purchase purchase)
+        {
+            if (ModelState.IsValid)
+            {
+                _context.Add(purchase);
+                await _context.SaveChangesAsync();
+                return RedirectToAction(nameof(Index));
+            }
+            ViewData["SpectatorId"] = new SelectList(_context.Spectators, "Id", "Email", purchase.SpectatorId);
+            return View(purchase);
+        }
+
+        // GET: Purchases/Edit/5
+        public async Task<IActionResult> Edit(int? id)
+        {
+            if (id == null)
+            {
+                return NotFound();
+            }
+
+            var purchase = await _context.Purchases.FindAsync(id);
+            if (purchase == null)
+            {
+                return NotFound();
+            }
+            ViewData["SpectatorId"] = new SelectList(_context.Spectators, "Id", "Email", purchase.SpectatorId);
+            return View(purchase);
+        }
+
+        // POST: Purchases/Edit/5
+        // To protect from overposting attacks, enable the specific properties you want to bind to.
+        // For more details, see http://go.microsoft.com/fwlink/?LinkId=317598.
+        [HttpPost]
+        [ValidateAntiForgeryToken]
+        public async Task<IActionResult> Edit(int id, [Bind("SpectatorId,PurchaseDate,Status,Id")] Purchase purchase)
+        {
+            if (id != purchase.Id)
+            {
+                return NotFound();
+            }
+
+            if (ModelState.IsValid)
+            {
+                try
+                {
+                    _context.Update(purchase);
+                    await _context.SaveChangesAsync();
+                }
+                catch (DbUpdateConcurrencyException)
+                {
+                    if (!PurchaseExists(purchase.Id))
+                    {
+                        return NotFound();
+                    }
+                    else
+                    {
+                        throw;
+                    }
+                }
+                return RedirectToAction(nameof(Index));
+            }
+            ViewData["SpectatorId"] = new SelectList(_context.Spectators, "Id", "Email", purchase.SpectatorId);
+            return View(purchase);
+        }
+
+        // GET: Purchases/Delete/5
+        public async Task<IActionResult> Delete(int? id)
+        {
+            if (id == null)
+            {
+                return NotFound();
+            }
+
+            var purchase = await _context.Purchases
+                .Include(p => p.Spectator)
+                .FirstOrDefaultAsync(m => m.Id == id);
+            if (purchase == null)
+            {
+                return NotFound();
+            }
+
+            return View(purchase);
+        }
+
+        // POST: Purchases/Delete/5
+        [HttpPost, ActionName("Delete")]
+        [ValidateAntiForgeryToken]
+        public async Task<IActionResult> DeleteConfirmed(int id)
+        {
+            var purchase = await _context.Purchases.FindAsync(id);
+            if (purchase != null)
+            {
+                _context.Purchases.Remove(purchase);
+            }
+
+            await _context.SaveChangesAsync();
+            return RedirectToAction(nameof(Index));
+        }
+
+        private bool PurchaseExists(int id)
+        {
+            return _context.Purchases.Any(e => e.Id == id);
+        }
+    }
+}
+
+
+// ==== Controllers\SpectatorsController.cs ====
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Threading.Tasks;
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Mvc.Rendering;
+using Microsoft.EntityFrameworkCore;
+using ConcertSystemDomain.Model;
+using ConcertSystemInfrastructure;
+
+namespace ConcertSystemInfrastructure.Controllers
+{
+    public class SpectatorsController : Controller
+    {
+        private readonly ConcertTicketSystemContext _context;
+
+        public SpectatorsController(ConcertTicketSystemContext context)
+        {
+            _context = context;
+        }
+
+        // GET: Spectators
+        public async Task<IActionResult> Index()
+        {
+            return View(await _context.Spectators.ToListAsync());
+        }
+
+        // GET: Spectators/Details/5
+        public async Task<IActionResult> Details(int? id)
+        {
+            if (id == null)
+            {
+                return NotFound();
+            }
+
+            var spectator = await _context.Spectators
+                .FirstOrDefaultAsync(m => m.Id == id);
+            if (spectator == null)
+            {
+                return NotFound();
+            }
+
+            return View(spectator);
+        }
+
+        // GET: Spectators/Create
+        public IActionResult Create()
+        {
+            return View();
+        }
+
+        // POST: Spectators/Create
+        // To protect from overposting attacks, enable the specific properties you want to bind to.
+        // For more details, see http://go.microsoft.com/fwlink/?LinkId=317598.
+        [HttpPost]
+        [ValidateAntiForgeryToken]
+        public async Task<IActionResult> Create([Bind("FullName,Phone,Email,Id")] Spectator spectator)
+        {
+            if (ModelState.IsValid)
+            {
+                _context.Add(spectator);
+                await _context.SaveChangesAsync();
+                return RedirectToAction(nameof(Index));
+            }
+            return View(spectator);
+        }
+
+        // GET: Spectators/Edit/5
+        public async Task<IActionResult> Edit(int? id)
+        {
+            if (id == null)
+            {
+                return NotFound();
+            }
+
+            var spectator = await _context.Spectators.FindAsync(id);
+            if (spectator == null)
+            {
+                return NotFound();
+            }
+            return View(spectator);
+        }
+
+        // POST: Spectators/Edit/5
+        // To protect from overposting attacks, enable the specific properties you want to bind to.
+        // For more details, see http://go.microsoft.com/fwlink/?LinkId=317598.
+        [HttpPost]
+        [ValidateAntiForgeryToken]
+        public async Task<IActionResult> Edit(int id, [Bind("FullName,Phone,Email,Id")] Spectator spectator)
+        {
+            if (id != spectator.Id)
+            {
+                return NotFound();
+            }
+
+            if (ModelState.IsValid)
+            {
+                try
+                {
+                    _context.Update(spectator);
+                    await _context.SaveChangesAsync();
+                }
+                catch (DbUpdateConcurrencyException)
+                {
+                    if (!SpectatorExists(spectator.Id))
+                    {
+                        return NotFound();
+                    }
+                    else
+                    {
+                        throw;
+                    }
+                }
+                return RedirectToAction(nameof(Index));
+            }
+            return View(spectator);
+        }
+
+        // GET: Spectators/Delete/5
+        public async Task<IActionResult> Delete(int? id)
+        {
+            if (id == null)
+            {
+                return NotFound();
+            }
+
+            var spectator = await _context.Spectators
+                .FirstOrDefaultAsync(m => m.Id == id);
+            if (spectator == null)
+            {
+                return NotFound();
+            }
+
+            return View(spectator);
+        }
+
+        // POST: Spectators/Delete/5
+        [HttpPost, ActionName("Delete")]
+        [ValidateAntiForgeryToken]
+        public async Task<IActionResult> DeleteConfirmed(int id)
+        {
+            var spectator = await _context.Spectators.FindAsync(id);
+            if (spectator != null)
+            {
+                _context.Spectators.Remove(spectator);
+            }
+
+            await _context.SaveChangesAsync();
+            return RedirectToAction(nameof(Index));
+        }
+
+        private bool SpectatorExists(int id)
+        {
+            return _context.Spectators.Any(e => e.Id == id);
+        }
+    }
+}
+
+
+// ==== Controllers\TicketsController.cs ====
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Threading.Tasks;
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Mvc.Rendering;
+using Microsoft.EntityFrameworkCore;
+using ConcertSystemDomain.Model;
+using ConcertSystemInfrastructure;
+
+namespace ConcertSystemInfrastructure.Controllers
+{
+    public class TicketsController : Controller
+    {
+        private readonly ConcertTicketSystemContext _context;
+
+        public TicketsController(ConcertTicketSystemContext context)
+        {
+            _context = context;
+        }
+
+        // GET: Tickets
+        public async Task<IActionResult> Index()
+        {
+            var concertTicketSystemContext = _context.Tickets.Include(t => t.Concert);
+            return View(await concertTicketSystemContext.ToListAsync());
+        }
+
+        // GET: Tickets/Details/5
+        public async Task<IActionResult> Details(int? id)
+        {
+            if (id == null)
+            {
+                return NotFound();
+            }
+
+            var ticket = await _context.Tickets
+                .Include(t => t.Concert)
+                .FirstOrDefaultAsync(m => m.Id == id);
+            if (ticket == null)
+            {
+                return NotFound();
+            }
+
+            return View(ticket);
+        }
+
+        // GET: Tickets/Create
+        public IActionResult Create()
+        {
+            ViewData["ConcertId"] = new SelectList(_context.Concerts, "Id", "Location");
+            return View();
+        }
+
+        // POST: Tickets/Create
+        // To protect from overposting attacks, enable the specific properties you want to bind to.
+        // For more details, see http://go.microsoft.com/fwlink/?LinkId=317598.
+        [HttpPost]
+        [ValidateAntiForgeryToken]
+        public async Task<IActionResult> Create([Bind("ConcertId,Row,SeatNumber,BasePrice,Status,Id")] Ticket ticket)
+        {
+            if (ModelState.IsValid)
+            {
+                _context.Add(ticket);
+                await _context.SaveChangesAsync();
+                return RedirectToAction(nameof(Index));
+            }
+            ViewData["ConcertId"] = new SelectList(_context.Concerts, "Id", "Location", ticket.ConcertId);
+            return View(ticket);
+        }
+
+        // GET: Tickets/Edit/5
+        public async Task<IActionResult> Edit(int? id)
+        {
+            if (id == null)
+            {
+                return NotFound();
+            }
+
+            var ticket = await _context.Tickets.FindAsync(id);
+            if (ticket == null)
+            {
+                return NotFound();
+            }
+            ViewData["ConcertId"] = new SelectList(_context.Concerts, "Id", "Location", ticket.ConcertId);
+            return View(ticket);
+        }
+
+        // POST: Tickets/Edit/5
+        // To protect from overposting attacks, enable the specific properties you want to bind to.
+        // For more details, see http://go.microsoft.com/fwlink/?LinkId=317598.
+        [HttpPost]
+        [ValidateAntiForgeryToken]
+        public async Task<IActionResult> Edit(int id, [Bind("ConcertId,Row,SeatNumber,BasePrice,Status,Id")] Ticket ticket)
+        {
+            if (id != ticket.Id)
+            {
+                return NotFound();
+            }
+
+            if (ModelState.IsValid)
+            {
+                try
+                {
+                    _context.Update(ticket);
+                    await _context.SaveChangesAsync();
+                }
+                catch (DbUpdateConcurrencyException)
+                {
+                    if (!TicketExists(ticket.Id))
+                    {
+                        return NotFound();
+                    }
+                    else
+                    {
+                        throw;
+                    }
+                }
+                return RedirectToAction(nameof(Index));
+            }
+            ViewData["ConcertId"] = new SelectList(_context.Concerts, "Id", "Location", ticket.ConcertId);
+            return View(ticket);
+        }
+
+        // GET: Tickets/Delete/5
+        public async Task<IActionResult> Delete(int? id)
+        {
+            if (id == null)
+            {
+                return NotFound();
+            }
+
+            var ticket = await _context.Tickets
+                .Include(t => t.Concert)
+                .FirstOrDefaultAsync(m => m.Id == id);
+            if (ticket == null)
+            {
+                return NotFound();
+            }
+
+            return View(ticket);
+        }
+
+        // POST: Tickets/Delete/5
+        [HttpPost, ActionName("Delete")]
+        [ValidateAntiForgeryToken]
+        public async Task<IActionResult> DeleteConfirmed(int id)
+        {
+            var ticket = await _context.Tickets.FindAsync(id);
+            if (ticket != null)
+            {
+                _context.Tickets.Remove(ticket);
+            }
+
+            await _context.SaveChangesAsync();
+            return RedirectToAction(nameof(Index));
+        }
+
+        private bool TicketExists(int id)
+        {
+            return _context.Tickets.Any(e => e.Id == id);
+        }
+    }
+}
+
+
+// ==== Models\ErrorViewModel.cs ====
+namespace ConcertSystemInfrastructure.Models
+{
+    public class ErrorViewModel
+    {
+        public string? RequestId { get; set; }
+
+        public bool ShowRequestId => !string.IsNullOrEmpty(RequestId);
+    }
+}
+
+
+// ==== Views\_ViewImports.cshtml ====
+@using ConcertSystemInfrastructure
+@using ConcertSystemInfrastructure.Models
+@addTagHelper *, Microsoft.AspNetCore.Mvc.TagHelpers
+
+
+// ==== Views\_ViewStart.cshtml ====
+@{
+    Layout = "_Layout";
+}
+
+
+// ==== Views\Artists\Create.cshtml ====
+@model ConcertSystemDomain.Model.Artist
+
+@{
+    ViewData["Title"] = "Додати артиста";
+}
+
+<h1>Додати артиста</h1>
+
+<h4>Артист</h4>
+<hr />
+<div class="row">
+    <div class="col-md-4">
+        <form asp-action="Create">
+            <div asp-validation-summary="ModelOnly" class="text-danger"></div>
+            <div class="form-group">
+                <label class="control-label">Повне ім'я</label>
+                <input asp-for="FullName" class="form-control" />
+                <span asp-validation-for="FullName" class="text-danger"></span>
+            </div>
+            <div class="form-group">
+                <label class="control-label">Соціальні мережі</label>
+                <input asp-for="SocialMedia" class="form-control" />
+                <span asp-validation-for="SocialMedia" class="text-danger"></span>
+            </div>
+            <div class="form-group">
+                <input type="submit" value="Додати" class="btn btn-primary" />
+            </div>
+        </form>
+    </div>
+</div>
+
+<div>
+    <a asp-action="Index">Повернутися до списку</a>
+</div>
+
+@section Scripts {
+    @{
+        await Html.RenderPartialAsync("_ValidationScriptsPartial");
+    }
+}
+
+// ==== Views\Artists\Delete.cshtml ====
+@model ConcertSystemDomain.Model.Artist
+
+@{
+    ViewData["Title"] = "Видалити артиста";
+}
+
+<h1>Видалити артиста</h1>
+
+<h3>Ви впевнені, що хочете видалити цього артиста?</h3>
+<div>
+    <h4>Артист</h4>
+    <hr />
+    <dl class="row">
+        <dt class="col-sm-2">
+            @Html.DisplayNameFor(model => model.FullName)
+        </dt>
+        <dd class="col-sm-10">
+            @Html.DisplayFor(model => model.FullName)
+        </dd>
+        <dt class="col-sm-2">
+            @Html.DisplayNameFor(model => model.SocialMedia)
+        </dt>
+        <dd class="col-sm-10">
+            @Html.DisplayFor(model => model.SocialMedia)
+        </dd>
+    </dl>
+
+    <form asp-action="Delete">
+        <input type="hidden" asp-for="Id" />
+        <input type="submit" value="Видалити" class="btn btn-danger" /> |
+        <a asp-action="Index">Повернутися до списку</a>
+    </form>
+</div>
+
+// ==== Views\Artists\Details.cshtml ====
+@model ConcertSystemDomain.Model.Artist
+
+@{
+    ViewData["Title"] = "Деталі артиста";
+}
+
+<h1>Деталі артиста</h1>
+
+<div>
+    <h4>Артист</h4>
+    <hr />
+    <dl class="row">
+        <dt class="col-sm-2">
+            @Html.DisplayNameFor(model => model.FullName)
+        </dt>
+        <dd class="col-sm-10">
+            @Html.DisplayFor(model => model.FullName)
+        </dd>
+        <dt class="col-sm-2">
+            @Html.DisplayNameFor(model => model.SocialMedia)
+        </dt>
+        <dd class="col-sm-10">
+            @Html.DisplayFor(model => model.SocialMedia)
+        </dd>
+    </dl>
+</div>
+<div>
+    <a asp-action="Edit" asp-route-id="@Model?.Id">Редагувати</a> |
+    <a asp-action="Index">Повернутися до списку</a>
+</div>
+
+// ==== Views\Artists\Edit.cshtml ====
+@model ConcertSystemDomain.Model.Artist
+
+@{
+    ViewData["Title"] = "Редагувати артиста";
+}
+
+<h1>Редагувати артиста</h1>
+
+<h4>Артист</h4>
+<hr />
+<div class="row">
+    <div class="col-md-4">
+        <form asp-action="Edit">
+            <div asp-validation-summary="ModelOnly" class="text-danger"></div>
+            <div class="form-group">
+                <label class="control-label">Повне ім'я</label>
+                <input asp-for="FullName" class="form-control" />
+                <span asp-validation-for="FullName" class="text-danger"></span>
+            </div>
+            <div class="form-group">
+                <label class="control-label">Соціальні мережі</label>
+                <input asp-for="SocialMedia" class="form-control" />
+                <span asp-validation-for="SocialMedia" class="text-danger"></span>
+            </div>
+            <input type="hidden" asp-for="Id" />
+            <div class="form-group">
+                <input type="submit" value="Зберегти" class="btn btn-primary" />
+            </div>
+        </form>
+    </div>
+</div>
+
+<div>
+    <a asp-action="Index">Повернутися до списку</a>
+</div>
+
+@section Scripts {
+    @{
+        await Html.RenderPartialAsync("_ValidationScriptsPartial");
+    }
+}
+
+// ==== Views\Artists\Index.cshtml ====
+@model IEnumerable<ConcertSystemDomain.Model.Artist>
+
+@{
+    ViewData["Title"] = "Артисти";
+}
+
+<h1>Артисти</h1>
+
+<p>
+    <a asp-action="Create" class="btn btn-primary">Додати артиста</a>
+</p>
+
+<table class="table">
+    <thead>
+        <tr>
+            <th>
+                Ім'я
+            </th>
+            <th>
+                Соціальні мережі
+            </th>
+            <th></th>
+        </tr>
+    </thead>
+    <tbody>
+        @foreach (var item in Model)
+        {
+            <tr>
+                <td>
+                    @Html.DisplayFor(modelItem => item.FullName)
+                </td>
+                <td>
+                    @Html.DisplayFor(modelItem => item.SocialMedia)
+                </td>
+                <td>
+                    <a asp-action="Edit" asp-route-id="@item.Id">Редагувати</a> |
+                    <a asp-action="Details" asp-route-id="@item.Id">Деталі</a> |
+                    <a asp-action="Delete" asp-route-id="@item.Id">Видалити</a>
+                </td>
+            </tr>
+        }
+    </tbody>
+</table>
+
+// ==== Views\Concerts\Create.cshtml ====
+@model ConcertSystemDomain.Model.Concert
+
+@{
+    ViewData["Title"] = "Додати концерт";
+}
+
+<h1>Додати концерт</h1>
+
+<h4>Концерт</h4>
+<hr />
+<div class="row">
+    <div class="col-md-4">
+        <form asp-action="Create">
+            <div asp-validation-summary="ModelOnly" class="text-danger"></div>
+            <div class="form-group">
+                <label class="control-label">Артист</label>
+                <select asp-for="ArtistId" class="form-control" asp-items="ViewBag.ArtistId"></select>
+            </div>
+            <div class="form-group">
+                <label class="control-label">Дата концерту</label>
+                <input asp-for="ConcertDate" class="form-control" />
+                <span asp-validation-for="ConcertDate" class="text-danger"></span>
+            </div>
+            <div class="form-group">
+                <label class="control-label">Місце проведення</label>
+                <input asp-for="Location" class="form-control" />
+                <span asp-validation-for="Location" class="text-danger"></span>
+            </div>
+            <div class="form-group">
+                <label class="control-label">Загальна кількість квитків</label>
+                <input asp-for="TotalTickets" class="form-control" />
+                <span asp-validation-for="TotalTickets" class="text-danger"></span>
+            </div>
+            <div class="form-group">
+                <label class="control-label">Доступні квитки</label>
+                <input asp-for="AvailableTickets" class="form-control" />
+                <span asp-validation-for="AvailableTickets" class="text-danger"></span>
+            </div>
+            <div class="form-group">
+                <input type="submit" value="Додати" class="btn btn-primary" />
+            </div>
+        </form>
+    </div>
+</div>
+
+<div>
+    <a asp-action="Index">Повернутися до списку</a>
+</div>
+
+@section Scripts {
+    @{
+        await Html.RenderPartialAsync("_ValidationScriptsPartial");
+    }
+}
+
+// ==== Views\Concerts\Delete.cshtml ====
+@model ConcertSystemDomain.Model.Concert
+
+@{
+    ViewData["Title"] = "Delete";
+}
+
+<h1>Delete</h1>
+
+<h3>Are you sure you want to delete this?</h3>
+<div>
+    <h4>Concert</h4>
+    <hr />
+    <dl class="row">
+        <dt class = "col-sm-2">
+            @Html.DisplayNameFor(model => model.ConcertDate)
+        </dt>
+        <dd class = "col-sm-10">
+            @Html.DisplayFor(model => model.ConcertDate)
+        </dd>
+        <dt class = "col-sm-2">
+            @Html.DisplayNameFor(model => model.Location)
+        </dt>
+        <dd class = "col-sm-10">
+            @Html.DisplayFor(model => model.Location)
+        </dd>
+        <dt class = "col-sm-2">
+            @Html.DisplayNameFor(model => model.TotalTickets)
+        </dt>
+        <dd class = "col-sm-10">
+            @Html.DisplayFor(model => model.TotalTickets)
+        </dd>
+        <dt class = "col-sm-2">
+            @Html.DisplayNameFor(model => model.AvailableTickets)
+        </dt>
+        <dd class = "col-sm-10">
+            @Html.DisplayFor(model => model.AvailableTickets)
+        </dd>
+        <dt class = "col-sm-2">
+            @Html.DisplayNameFor(model => model.Artist)
+        </dt>
+        <dd class = "col-sm-10">
+            @Html.DisplayFor(model => model.Artist.FullName)
+        </dd>
+    </dl>
+    
+    <form asp-action="Delete">
+        <input type="hidden" asp-for="Id" />
+        <input type="submit" value="Delete" class="btn btn-danger" /> |
+        <a asp-action="Index">Back to List</a>
+    </form>
+</div>
+
+
+// ==== Views\Concerts\Details.cshtml ====
+@model ConcertSystemDomain.Model.Concert
+
+@{
+    ViewData["Title"] = "Details";
+}
+
+<h1>Details</h1>
+
+<div>
+    <h4>Concert</h4>
+    <hr />
+    <dl class="row">
+        <dt class = "col-sm-2">
+            @Html.DisplayNameFor(model => model.ConcertDate)
+        </dt>
+        <dd class = "col-sm-10">
+            @Html.DisplayFor(model => model.ConcertDate)
+        </dd>
+        <dt class = "col-sm-2">
+            @Html.DisplayNameFor(model => model.Location)
+        </dt>
+        <dd class = "col-sm-10">
+            @Html.DisplayFor(model => model.Location)
+        </dd>
+        <dt class = "col-sm-2">
+            @Html.DisplayNameFor(model => model.TotalTickets)
+        </dt>
+        <dd class = "col-sm-10">
+            @Html.DisplayFor(model => model.TotalTickets)
+        </dd>
+        <dt class = "col-sm-2">
+            @Html.DisplayNameFor(model => model.AvailableTickets)
+        </dt>
+        <dd class = "col-sm-10">
+            @Html.DisplayFor(model => model.AvailableTickets)
+        </dd>
+        <dt class = "col-sm-2">
+            @Html.DisplayNameFor(model => model.Artist)
+        </dt>
+        <dd class = "col-sm-10">
+            @Html.DisplayFor(model => model.Artist.FullName)
+        </dd>
+    </dl>
+</div>
+<div>
+    <a asp-action="Edit" asp-route-id="@Model?.Id">Edit</a> |
+    <a asp-action="Index">Back to List</a>
+</div>
+
+
+// ==== Views\Concerts\Edit.cshtml ====
+@model ConcertSystemDomain.Model.Concert
+
+@{
+    ViewData["Title"] = "Редагувати концерт";
+}
+
+<h1>Редагувати концерт</h1>
+
+<h4>Концерт</h4>
+<hr />
+<div class="row">
+    <div class="col-md-4">
+        <form asp-action="Edit">
+            <div asp-validation-summary="ModelOnly" class="text-danger"></div>
+            <div class="form-group">
+                <label class="control-label">Артист</label>
+                <select asp-for="ArtistId" class="form-control" asp-items="ViewBag.ArtistId"></select>
+                <span asp-validation-for="ArtistId" class="text-danger"></span>
+            </div>
+            <div class="form-group">
+                <label class="control-label">Дата концерту</label>
+                <input asp-for="ConcertDate" class="form-control" />
+                <span asp-validation-for="ConcertDate" class="text-danger"></span>
+            </div>
+            <div class="form-group">
+                <label class="control-label">Місце проведення</label>
+                <input asp-for="Location" class="form-control" />
+                <span asp-validation-for="Location" class="text-danger"></span>
+            </div>
+            <div class="form-group">
+                <label class="control-label">Загальна кількість квитків</label>
+                <input asp-for="TotalTickets" class="form-control" />
+                <span asp-validation-for="TotalTickets" class="text-danger"></span>
+            </div>
+            <div class="form-group">
+                <label class="control-label">Доступні квитки</label>
+                <input asp-for="AvailableTickets" class="form-control" />
+                <span asp-validation-for="AvailableTickets" class="text-danger"></span>
+            </div>
+            <input type="hidden" asp-for="Id" />
+            <div class="form-group">
+                <input type="submit" value="Зберегти" class="btn btn-primary" />
+            </div>
+        </form>
+    </div>
+</div>
+
+<div>
+    <a asp-action="Index">Повернутися до списку</a>
+</div>
+
+@section Scripts {
+    @{
+        await Html.RenderPartialAsync("_ValidationScriptsPartial");
+    }
+}
+
+// ==== Views\Concerts\Index.cshtml ====
+@model IEnumerable<ConcertSystemDomain.Model.Concert>
+
+@{
+    ViewData["Title"] = "Концерти";
+}
+
+<h1>Концерти</h1>
+
+<!-- Кнопка для відкриття панелі фільтрації -->
+<div class="filter-panel">
+    <button class="btn btn-primary" onclick="toggleFilterPanel()">☰ Фільтри</button>
+</div>
+
+<!-- Панель фільтрації -->
+<div id="filterPanel" class="filter-panel-content" style="display: none;">
+    <form asp-action="Index" method="get">
+        <div class="form-group">
+            <label>Артист:</label>
+            <select name="artistFilter" class="form-control" asp-items="@(new SelectList(ViewBag.Artists))">
+                <option value="">Всі артисти</option>
+            </select>
+        </div>
+        <div class="form-group">
+            <label>Жанр:</label>
+            <select name="genreFilter" class="form-control" asp-items="@(new SelectList(ViewBag.Genres))">
+                <option value="">Всі жанри</option>
+            </select>
+        </div>
+        <div class="form-group">
+            <label>Місце проведення:</label>
+            <select name="locationFilter" class="form-control" asp-items="@(new SelectList(ViewBag.Locations))">
+                <option value="">Всі місця</option>
+            </select>
+        </div>
+        <div class="form-group">
+            <label>Дата проведення:</label>
+            <input type="date" name="dateFilter" class="form-control" />
+        </div>
+        <button type="submit" class="btn btn-primary">Застосувати</button>
+    </form>
+</div>
+
+<!-- Таблиця концертів -->
+<table class="table">
+    <thead>
+        <tr>
+            <th>Дата концерту</th>
+            <th>Місце проведення</th>
+            <th>Загальна кількість квитків</th>
+            <th>Доступні квитки</th>
+            <th>Артист</th>
+            <th>Жанри</th>
+            <th>Дії</th>
+        </tr>
+    </thead>
+    <tbody>
+        @foreach (var item in Model)
+        {
+            <tr>
+                <td>@Html.DisplayFor(modelItem => item.ConcertDate)</td>
+                <td>@Html.DisplayFor(modelItem => item.Location)</td>
+                <td>@Html.DisplayFor(modelItem => item.TotalTickets)</td>
+                <td>@Html.DisplayFor(modelItem => item.AvailableTickets)</td>
+                <td>@Html.DisplayFor(modelItem => item.Artist.FullName)</td>
+                <td>
+                    @foreach (var genre in item.Genres)
+                    {
+                        <span>@genre.Name</span>
+                    }
+                </td>
+                <td>
+                    <a asp-action="Edit" asp-route-id="@item.Id" class="btn btn-sm btn-secondary">Редагувати</a>
+                    <a asp-action="Details" asp-route-id="@item.Id" class="btn btn-sm btn-info">Деталі</a>
+                    <a asp-action="Delete" asp-route-id="@item.Id" class="btn btn-sm btn-danger">Видалити</a>
+                </td>
+            </tr>
+        }
+    </tbody>
+</table>
+
+<!-- Стилі для панелі фільтрації -->
+<style>
+    .filter-panel {
+        margin-bottom: 20px;
+    }
+
+    .filter-panel-content {
+        background-color: #f8f9fa;
+        padding: 20px;
+        border-radius: 10px;
+        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        margin-bottom: 20px;
+    }
+</style>
+
+<!-- Скрипт для відкриття/закриття панелі фільтрації -->
+<script>
+    function toggleFilterPanel() {
+        var panel = document.getElementById("filterPanel");
+        if (panel.style.display === "none") {
+            panel.style.display = "block";
+        } else {
+            panel.style.display = "none";
+        }
+    }
+</script>
+
+// ==== Views\Genres\Create.cshtml ====
+@model ConcertSystemDomain.Model.Genre
+
+@{
+    ViewData["Title"] = "Create";
+}
+
+<h1>Create</h1>
+
+<h4>Genre</h4>
+<hr />
+<div class="row">
+    <div class="col-md-4">
+        <form asp-action="Create">
+            <div asp-validation-summary="ModelOnly" class="text-danger"></div>
+            <div class="form-group">
+                <label asp-for="Name" class="control-label"></label>
+                <input asp-for="Name" class="form-control" />
+                <span asp-validation-for="Name" class="text-danger"></span>
+            </div>
+            <div class="form-group">
+                <input type="submit" value="Create" class="btn btn-primary" />
+            </div>
+        </form>
+    </div>
+</div>
+
+<div>
+    <a asp-action="Index">Back to List</a>
+</div>
+
+@section Scripts {
+    @{await Html.RenderPartialAsync("_ValidationScriptsPartial");}
+}
+
+
+// ==== Views\Genres\Delete.cshtml ====
+@model ConcertSystemDomain.Model.Genre
+
+@{
+    ViewData["Title"] = "Delete";
+}
+
+<h1>Delete</h1>
+
+<h3>Are you sure you want to delete this?</h3>
+<div>
+    <h4>Genre</h4>
+    <hr />
+    <dl class="row">
+        <dt class = "col-sm-2">
+            @Html.DisplayNameFor(model => model.Name)
+        </dt>
+        <dd class = "col-sm-10">
+            @Html.DisplayFor(model => model.Name)
+        </dd>
+    </dl>
+    
+    <form asp-action="Delete">
+        <input type="hidden" asp-for="Id" />
+        <input type="submit" value="Delete" class="btn btn-danger" /> |
+        <a asp-action="Index">Back to List</a>
+    </form>
+</div>
+
+
+// ==== Views\Genres\Details.cshtml ====
+@model ConcertSystemDomain.Model.Genre
+
+@{
+    ViewData["Title"] = "Details";
+}
+
+<h1>Details</h1>
+
+<div>
+    <h4>Genre</h4>
+    <hr />
+    <dl class="row">
+        <dt class = "col-sm-2">
+            @Html.DisplayNameFor(model => model.Name)
+        </dt>
+        <dd class = "col-sm-10">
+            @Html.DisplayFor(model => model.Name)
+        </dd>
+    </dl>
+</div>
+<div>
+    <a asp-action="Edit" asp-route-id="@Model?.Id">Edit</a> |
+    <a asp-action="Index">Back to List</a>
+</div>
+
+
+// ==== Views\Genres\Edit.cshtml ====
+@model ConcertSystemDomain.Model.Genre
+
+@{
+    ViewData["Title"] = "Edit";
+}
+
+<h1>Edit</h1>
+
+<h4>Genre</h4>
+<hr />
+<div class="row">
+    <div class="col-md-4">
+        <form asp-action="Edit">
+            <div asp-validation-summary="ModelOnly" class="text-danger"></div>
+            <div class="form-group">
+                <label asp-for="Name" class="control-label"></label>
+                <input asp-for="Name" class="form-control" />
+                <span asp-validation-for="Name" class="text-danger"></span>
+            </div>
+            <input type="hidden" asp-for="Id" />
+            <div class="form-group">
+                <input type="submit" value="Save" class="btn btn-primary" />
+            </div>
+        </form>
+    </div>
+</div>
+
+<div>
+    <a asp-action="Index">Back to List</a>
+</div>
+
+@section Scripts {
+    @{await Html.RenderPartialAsync("_ValidationScriptsPartial");}
+}
+
+
+// ==== Views\Genres\Index.cshtml ====
+@model IEnumerable<ConcertSystemDomain.Model.Genre>
+
+@{
+    ViewData["Title"] = "Index";
+}
+
+<h1>Index</h1>
+
+<p>
+    <a asp-action="Create">Create New</a>
+</p>
+<table class="table">
+    <thead>
+        <tr>
+            <th>
+                @Html.DisplayNameFor(model => model.Name)
+            </th>
+            <th></th>
+        </tr>
+    </thead>
+    <tbody>
+@foreach (var item in Model) {
+        <tr>
+            <td>
+                @Html.DisplayFor(modelItem => item.Name)
+            </td>
+            <td>
+                <a asp-action="Edit" asp-route-id="@item.Id">Edit</a> |
+                <a asp-action="Details" asp-route-id="@item.Id">Details</a> |
+                <a asp-action="Delete" asp-route-id="@item.Id">Delete</a>
+            </td>
+        </tr>
+}
+    </tbody>
+</table>
+
+
+// ==== Views\Home\Index.cshtml ====
+
+
+// ==== Views\Home\Privacy.cshtml ====
+@{
+    ViewData["Title"] = "Privacy Policy";
+}
+<h1>@ViewData["Title"]</h1>
+
+<p>Use this page to detail your site's privacy policy.</p>
+
+
+// ==== Views\PurchaseItems\Create.cshtml ====
+@model ConcertSystemDomain.Model.PurchaseItem
+
+@{
+    ViewData["Title"] = "Create";
+}
+
+<h1>Create</h1>
+
+<h4>PurchaseItem</h4>
+<hr />
+<div class="row">
+    <div class="col-md-4">
+        <form asp-action="Create">
+            <div asp-validation-summary="ModelOnly" class="text-danger"></div>
+            <div class="form-group">
+                <label asp-for="PurchaseId" class="control-label"></label>
+                <select asp-for="PurchaseId" class ="form-control" asp-items="ViewBag.PurchaseId"></select>
+            </div>
+            <div class="form-group">
+                <label asp-for="TicketId" class="control-label"></label>
+                <select asp-for="TicketId" class ="form-control" asp-items="ViewBag.TicketId"></select>
+            </div>
+            <div class="form-group">
+                <label asp-for="Price" class="control-label"></label>
+                <input asp-for="Price" class="form-control" />
+                <span asp-validation-for="Price" class="text-danger"></span>
+            </div>
+            <div class="form-group">
+                <input type="submit" value="Create" class="btn btn-primary" />
+            </div>
+        </form>
+    </div>
+</div>
+
+<div>
+    <a asp-action="Index">Back to List</a>
+</div>
+
+@section Scripts {
+    @{await Html.RenderPartialAsync("_ValidationScriptsPartial");}
+}
+
+
+// ==== Views\PurchaseItems\Delete.cshtml ====
+@model ConcertSystemDomain.Model.PurchaseItem
+
+@{
+    ViewData["Title"] = "Delete";
+}
+
+<h1>Delete</h1>
+
+<h3>Are you sure you want to delete this?</h3>
+<div>
+    <h4>PurchaseItem</h4>
+    <hr />
+    <dl class="row">
+        <dt class = "col-sm-2">
+            @Html.DisplayNameFor(model => model.Quantity)
+        </dt>
+        <dd class = "col-sm-10">
+            @Html.DisplayFor(model => model.Quantity)
+        </dd>
+        <dt class = "col-sm-2">
+            @Html.DisplayNameFor(model => model.Price)
+        </dt>
+        <dd class = "col-sm-10">
+            @Html.DisplayFor(model => model.Price)
+        </dd>
+        <dt class = "col-sm-2">
+            @Html.DisplayNameFor(model => model.Purchase)
+        </dt>
+        <dd class = "col-sm-10">
+            @Html.DisplayFor(model => model.Purchase.Status)
+        </dd>
+        <dt class = "col-sm-2">
+            @Html.DisplayNameFor(model => model.Ticket)
+        </dt>
+        <dd class = "col-sm-10">
+            @Html.DisplayFor(model => model.Ticket.Status)
+        </dd>
+    </dl>
+    
+    <form asp-action="Delete">
+        <input type="hidden" asp-for="Id" />
+        <input type="submit" value="Delete" class="btn btn-danger" /> |
+        <a asp-action="Index">Back to List</a>
+    </form>
+</div>
+
+
+// ==== Views\PurchaseItems\Details.cshtml ====
+@model ConcertSystemDomain.Model.PurchaseItem
+
+@{
+    ViewData["Title"] = "Details";
+}
+
+<h1>Details</h1>
+
+<div>
+    <h4>PurchaseItem</h4>
+    <hr />
+    <dl class="row">
+        <dt class = "col-sm-2">
+            @Html.DisplayNameFor(model => model.Quantity)
+        </dt>
+        <dd class = "col-sm-10">
+            @Html.DisplayFor(model => model.Quantity)
+        </dd>
+        <dt class = "col-sm-2">
+            @Html.DisplayNameFor(model => model.Price)
+        </dt>
+        <dd class = "col-sm-10">
+            @Html.DisplayFor(model => model.Price)
+        </dd>
+        <dt class = "col-sm-2">
+            @Html.DisplayNameFor(model => model.Purchase)
+        </dt>
+        <dd class = "col-sm-10">
+            @Html.DisplayFor(model => model.Purchase.Status)
+        </dd>
+        <dt class = "col-sm-2">
+            @Html.DisplayNameFor(model => model.Ticket)
+        </dt>
+        <dd class = "col-sm-10">
+            @Html.DisplayFor(model => model.Ticket.Status)
+        </dd>
+    </dl>
+</div>
+<div>
+    <a asp-action="Edit" asp-route-id="@Model?.Id">Edit</a> |
+    <a asp-action="Index">Back to List</a>
+</div>
+
+
+// ==== Views\PurchaseItems\Edit.cshtml ====
+@model ConcertSystemDomain.Model.PurchaseItem
+
+@{
+    ViewData["Title"] = "Edit";
+}
+
+<h1>Edit</h1>
+
+<h4>PurchaseItem</h4>
+<hr />
+<div class="row">
+    <div class="col-md-4">
+        <form asp-action="Edit">
+            <div asp-validation-summary="ModelOnly" class="text-danger"></div>
+            <div class="form-group">
+                <label asp-for="PurchaseId" class="control-label"></label>
+                <select asp-for="PurchaseId" class="form-control" asp-items="ViewBag.PurchaseId"></select>
+                <span asp-validation-for="PurchaseId" class="text-danger"></span>
+            </div>
+            <div class="form-group">
+                <label asp-for="TicketId" class="control-label"></label>
+                <select asp-for="TicketId" class="form-control" asp-items="ViewBag.TicketId"></select>
+                <span asp-validation-for="TicketId" class="text-danger"></span>
+            </div>
+            <div class="form-group">
+                <label asp-for="Quantity" class="control-label"></label>
+                <input asp-for="Quantity" class="form-control" />
+                <span asp-validation-for="Quantity" class="text-danger"></span>
+            </div>
+            <div class="form-group">
+                <label asp-for="Price" class="control-label"></label>
+                <input asp-for="Price" class="form-control" />
+                <span asp-validation-for="Price" class="text-danger"></span>
+            </div>
+            <input type="hidden" asp-for="Id" />
+            <div class="form-group">
+                <input type="submit" value="Save" class="btn btn-primary" />
+            </div>
+        </form>
+    </div>
+</div>
+
+<div>
+    <a asp-action="Index">Back to List</a>
+</div>
+
+@section Scripts {
+    @{await Html.RenderPartialAsync("_ValidationScriptsPartial");}
+}
+
+
+// ==== Views\PurchaseItems\Index.cshtml ====
+@model IEnumerable<ConcertSystemDomain.Model.PurchaseItem>
+
+@{
+    ViewData["Title"] = "Index";
+}
+
+<h1>Index</h1>
+
+<p>
+    <a asp-action="Create">Create New</a>
+</p>
+<table class="table">
+    <thead>
+        <tr>
+            <th>
+                @Html.DisplayNameFor(model => model.Quantity)
+            </th>
+            <th>
+                @Html.DisplayNameFor(model => model.Price)
+            </th>
+            <th>
+                @Html.DisplayNameFor(model => model.Purchase)
+            </th>
+            <th>
+                @Html.DisplayNameFor(model => model.Ticket)
+            </th>
+            <th></th>
+        </tr>
+    </thead>
+    <tbody>
+@foreach (var item in Model) {
+        <tr>
+            <td>
+                @Html.DisplayFor(modelItem => item.Quantity)
+            </td>
+            <td>
+                @Html.DisplayFor(modelItem => item.Price)
+            </td>
+            <td>
+                @Html.DisplayFor(modelItem => item.Purchase.Status)
+            </td>
+            <td>
+                @Html.DisplayFor(modelItem => item.Ticket.Status)
+            </td>
+            <td>
+                <a asp-action="Edit" asp-route-id="@item.Id">Edit</a> |
+                <a asp-action="Details" asp-route-id="@item.Id">Details</a> |
+                <a asp-action="Delete" asp-route-id="@item.Id">Delete</a>
+            </td>
+        </tr>
+}
+    </tbody>
+</table>
+
+
+// ==== Views\Purchases\Create.cshtml ====
+@model ConcertSystemDomain.Model.Purchase
+
+@{
+    ViewData["Title"] = "Create";
+}
+
+<h1>Create</h1>
+
+<h4>Purchase</h4>
+<hr />
+<div class="row">
+    <div class="col-md-4">
+        <form asp-action="Create">
+            <div asp-validation-summary="ModelOnly" class="text-danger"></div>
+            <div class="form-group">
+                <label asp-for="SpectatorId" class="control-label"></label>
+                <select asp-for="SpectatorId" class ="form-control" asp-items="ViewBag.SpectatorId"></select>
+            </div>
+            <div class="form-group">
+                <input type="submit" value="Create" class="btn btn-primary" />
+            </div>
+        </form>
+    </div>
+</div>
+
+<div>
+    <a asp-action="Index">Back to List</a>
+</div>
+
+@section Scripts {
+    @{await Html.RenderPartialAsync("_ValidationScriptsPartial");}
+}
+
+
+// ==== Views\Purchases\Delete.cshtml ====
+@model ConcertSystemDomain.Model.Purchase
+
+@{
+    ViewData["Title"] = "Delete";
+}
+
+<h1>Delete</h1>
+
+<h3>Are you sure you want to delete this?</h3>
+<div>
+    <h4>Purchase</h4>
+    <hr />
+    <dl class="row">
+        <dt class = "col-sm-2">
+            @Html.DisplayNameFor(model => model.PurchaseDate)
+        </dt>
+        <dd class = "col-sm-10">
+            @Html.DisplayFor(model => model.PurchaseDate)
+        </dd>
+        <dt class = "col-sm-2">
+            @Html.DisplayNameFor(model => model.Status)
+        </dt>
+        <dd class = "col-sm-10">
+            @Html.DisplayFor(model => model.Status)
+        </dd>
+        <dt class = "col-sm-2">
+            @Html.DisplayNameFor(model => model.Spectator)
+        </dt>
+        <dd class = "col-sm-10">
+            @Html.DisplayFor(model => model.Spectator.Email)
+        </dd>
+    </dl>
+    
+    <form asp-action="Delete">
+        <input type="hidden" asp-for="Id" />
+        <input type="submit" value="Delete" class="btn btn-danger" /> |
+        <a asp-action="Index">Back to List</a>
+    </form>
+</div>
+
+
+// ==== Views\Purchases\Details.cshtml ====
+@model ConcertSystemDomain.Model.Purchase
+
+@{
+    ViewData["Title"] = "Details";
+}
+
+<h1>Details</h1>
+
+<div>
+    <h4>Purchase</h4>
+    <hr />
+    <dl class="row">
+        <dt class = "col-sm-2">
+            @Html.DisplayNameFor(model => model.PurchaseDate)
+        </dt>
+        <dd class = "col-sm-10">
+            @Html.DisplayFor(model => model.PurchaseDate)
+        </dd>
+        <dt class = "col-sm-2">
+            @Html.DisplayNameFor(model => model.Status)
+        </dt>
+        <dd class = "col-sm-10">
+            @Html.DisplayFor(model => model.Status)
+        </dd>
+        <dt class = "col-sm-2">
+            @Html.DisplayNameFor(model => model.Spectator)
+        </dt>
+        <dd class = "col-sm-10">
+            @Html.DisplayFor(model => model.Spectator.Email)
+        </dd>
+    </dl>
+</div>
+<div>
+    <a asp-action="Edit" asp-route-id="@Model?.Id">Edit</a> |
+    <a asp-action="Index">Back to List</a>
+</div>
+
+
+// ==== Views\Purchases\Edit.cshtml ====
+@model ConcertSystemDomain.Model.Purchase
+
+@{
+    ViewData["Title"] = "Edit";
+}
+
+<h1>Edit</h1>
+
+<h4>Purchase</h4>
+<hr />
+<div class="row">
+    <div class="col-md-4">
+        <form asp-action="Edit">
+            <div asp-validation-summary="ModelOnly" class="text-danger"></div>
+            <div class="form-group">
+                <label asp-for="SpectatorId" class="control-label"></label>
+                <select asp-for="SpectatorId" class="form-control" asp-items="ViewBag.SpectatorId"></select>
+                <span asp-validation-for="SpectatorId" class="text-danger"></span>
+            </div>
+            <div class="form-group">
+                <label asp-for="PurchaseDate" class="control-label"></label>
+                <input asp-for="PurchaseDate" class="form-control" />
+                <span asp-validation-for="PurchaseDate" class="text-danger"></span>
+            </div>
+            <div class="form-group">
+                <label asp-for="Status" class="control-label"></label>
+                <input asp-for="Status" class="form-control" />
+                <span asp-validation-for="Status" class="text-danger"></span>
+            </div>
+            <input type="hidden" asp-for="Id" />
+            <div class="form-group">
+                <input type="submit" value="Save" class="btn btn-primary" />
+            </div>
+        </form>
+    </div>
+</div>
+
+<div>
+    <a asp-action="Index">Back to List</a>
+</div>
+
+@section Scripts {
+    @{await Html.RenderPartialAsync("_ValidationScriptsPartial");}
+}
+
+
+// ==== Views\Purchases\Index.cshtml ====
+@model IEnumerable<ConcertSystemDomain.Model.Purchase>
+
+@{
+    ViewData["Title"] = "Index";
+}
+
+<h1>Index</h1>
+
+<p>
+    <a asp-action="Create">Create New</a>
+</p>
+<table class="table">
+    <thead>
+        <tr>
+            <th>
+                @Html.DisplayNameFor(model => model.PurchaseDate)
+            </th>
+            <th>
+                @Html.DisplayNameFor(model => model.Status)
+            </th>
+            <th>
+                @Html.DisplayNameFor(model => model.Spectator)
+            </th>
+            <th></th>
+        </tr>
+    </thead>
+    <tbody>
+@foreach (var item in Model) {
+        <tr>
+            <td>
+                @Html.DisplayFor(modelItem => item.PurchaseDate)
+            </td>
+            <td>
+                @Html.DisplayFor(modelItem => item.Status)
+            </td>
+            <td>
+                @Html.DisplayFor(modelItem => item.Spectator.Email)
+            </td>
+            <td>
+                <a asp-action="Edit" asp-route-id="@item.Id">Edit</a> |
+                <a asp-action="Details" asp-route-id="@item.Id">Details</a> |
+                <a asp-action="Delete" asp-route-id="@item.Id">Delete</a>
+            </td>
+        </tr>
+}
+    </tbody>
+</table>
+
+
+// ==== Views\Shared\Error.cshtml ====
+@model ErrorViewModel
+@{
+    ViewData["Title"] = "Error";
+}
+
+<h1 class="text-danger">Error.</h1>
+<h2 class="text-danger">An error occurred while processing your request.</h2>
+
+@if (Model.ShowRequestId)
+{
+    <p>
+        <strong>Request ID:</strong> <code>@Model.RequestId</code>
+    </p>
+}
+
+<h3>Development Mode</h3>
+<p>
+    Swapping to <strong>Development</strong> environment will display more detailed information about the error that occurred.
+</p>
+<p>
+    <strong>The Development environment shouldn't be enabled for deployed applications.</strong>
+    It can result in displaying sensitive information from exceptions to end users.
+    For local debugging, enable the <strong>Development</strong> environment by setting the <strong>ASPNETCORE_ENVIRONMENT</strong> environment variable to <strong>Development</strong>
+    and restarting the app.
+</p>
+
+
+// ==== Views\Shared\_Layout.cshtml ====
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>@ViewData["Title"] - Концертна система</title>
+    <link rel="stylesheet" href="~/lib/bootstrap/dist/css/bootstrap.min.css" />
+    <link rel="stylesheet" href="~/css/site.css" asp-append-version="true" />
+</head>
+<body>
+    <header>
+        <nav class="navbar navbar-expand-sm navbar-toggleable-sm navbar-light bg-white border-bottom box-shadow mb-3">
+            <div class="container-fluid">
+                <a class="navbar-brand" asp-area="" asp-controller="Concerts" asp-action="Index">Концертна система</a>
+                <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target=".navbar-collapse" aria-controls="navbarSupportedContent"
+                        aria-expanded="false" aria-label="Перемикач навігації">
+                    <span class="navbar-toggler-icon"></span>
+                </button>
+                <div class="navbar-collapse collapse d-sm-inline-flex justify-content-between">
+                    <ul class="navbar-nav flex-grow-1">
+                        <li class="nav-item">
+                            <a class="nav-link text-dark" asp-area="" asp-controller="Artists" asp-action="Index">Артисти</a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link text-dark" asp-area="" asp-controller="Concerts" asp-action="Index">Концерти</a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link text-dark" asp-area="" asp-controller="Home" asp-action="Privacy">Політика конфіденційності</a>
+                        </li>
+                    </ul>
+                </div>
+            </div>
+        </nav>
+    </header>
+    <div class="container">
+        <main role="main" class="pb-3">
+            @RenderBody()
+        </main>
+    </div>
+
+    <footer class="border-top footer text-muted">
+        <div class="container">
+            &copy; 2025 - Концертна система - <a asp-area="" asp-controller="Home" asp-action="Privacy">Політика конфіденційності</a>
+        </div>
+    </footer>
+    <script src="~/lib/jquery/dist/jquery.min.js"></script>
+    <script src="~/lib/bootstrap/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="~/js/site.js" asp-append-version="true"></script>
+    @await RenderSectionAsync("Scripts", required: false)
+</body>
+</html>
+
+// ==== Views\Shared\_Layout.cshtml.css ====
+/* Please see documentation at https://learn.microsoft.com/aspnet/core/client-side/bundling-and-minification
+for details on configuring this project to bundle and minify static web assets. */
+
+a.navbar-brand {
+  white-space: normal;
+  text-align: center;
+  word-break: break-all;
+}
+
+a {
+  color: #0077cc;
+}
+
+.btn-primary {
+  color: #fff;
+  background-color: #1b6ec2;
+  border-color: #1861ac;
+}
+
+.nav-pills .nav-link.active, .nav-pills .show > .nav-link {
+  color: #fff;
+  background-color: #1b6ec2;
+  border-color: #1861ac;
+}
+
+.border-top {
+  border-top: 1px solid #e5e5e5;
+}
+.border-bottom {
+  border-bottom: 1px solid #e5e5e5;
+}
+
+.box-shadow {
+  box-shadow: 0 .25rem .75rem rgba(0, 0, 0, .05);
+}
+
+button.accept-policy {
+  font-size: 1rem;
+  line-height: inherit;
+}
+
+.footer {
+  position: absolute;
+  bottom: 0;
+  width: 100%;
+  white-space: nowrap;
+  line-height: 60px;
+}
+
+
+// ==== Views\Shared\_ValidationScriptsPartial.cshtml ====
+<script src="~/lib/jquery-validation/dist/jquery.validate.min.js"></script>
+<script src="~/lib/jquery-validation-unobtrusive/dist/jquery.validate.unobtrusive.min.js"></script>
+
+
+// ==== Views\Spectators\Create.cshtml ====
+@model ConcertSystemDomain.Model.Spectator
+
+@{
+    ViewData["Title"] = "Create";
+}
+
+<h1>Create</h1>
+
+<h4>Spectator</h4>
+<hr />
+<div class="row">
+    <div class="col-md-4">
+        <form asp-action="Create">
+            <div asp-validation-summary="ModelOnly" class="text-danger"></div>
+            <div class="form-group">
+                <label asp-for="FullName" class="control-label"></label>
+                <input asp-for="FullName" class="form-control" />
+                <span asp-validation-for="FullName" class="text-danger"></span>
+            </div>
+            <div class="form-group">
+                <label asp-for="Phone" class="control-label"></label>
+                <input asp-for="Phone" class="form-control" />
+                <span asp-validation-for="Phone" class="text-danger"></span>
+            </div>
+            <div class="form-group">
+                <label asp-for="Email" class="control-label"></label>
+                <input asp-for="Email" class="form-control" />
+                <span asp-validation-for="Email" class="text-danger"></span>
+            </div>
+            <div class="form-group">
+                <input type="submit" value="Create" class="btn btn-primary" />
+            </div>
+        </form>
+    </div>
+</div>
+
+<div>
+    <a asp-action="Index">Back to List</a>
+</div>
+
+@section Scripts {
+    @{await Html.RenderPartialAsync("_ValidationScriptsPartial");}
+}
+
+
+// ==== Views\Spectators\Delete.cshtml ====
+@model ConcertSystemDomain.Model.Spectator
+
+@{
+    ViewData["Title"] = "Delete";
+}
+
+<h1>Delete</h1>
+
+<h3>Are you sure you want to delete this?</h3>
+<div>
+    <h4>Spectator</h4>
+    <hr />
+    <dl class="row">
+        <dt class = "col-sm-2">
+            @Html.DisplayNameFor(model => model.FullName)
+        </dt>
+        <dd class = "col-sm-10">
+            @Html.DisplayFor(model => model.FullName)
+        </dd>
+        <dt class = "col-sm-2">
+            @Html.DisplayNameFor(model => model.Phone)
+        </dt>
+        <dd class = "col-sm-10">
+            @Html.DisplayFor(model => model.Phone)
+        </dd>
+        <dt class = "col-sm-2">
+            @Html.DisplayNameFor(model => model.Email)
+        </dt>
+        <dd class = "col-sm-10">
+            @Html.DisplayFor(model => model.Email)
+        </dd>
+    </dl>
+    
+    <form asp-action="Delete">
+        <input type="hidden" asp-for="Id" />
+        <input type="submit" value="Delete" class="btn btn-danger" /> |
+        <a asp-action="Index">Back to List</a>
+    </form>
+</div>
+
+
+// ==== Views\Spectators\Details.cshtml ====
+@model ConcertSystemDomain.Model.Spectator
+
+@{
+    ViewData["Title"] = "Details";
+}
+
+<h1>Details</h1>
+
+<div>
+    <h4>Spectator</h4>
+    <hr />
+    <dl class="row">
+        <dt class = "col-sm-2">
+            @Html.DisplayNameFor(model => model.FullName)
+        </dt>
+        <dd class = "col-sm-10">
+            @Html.DisplayFor(model => model.FullName)
+        </dd>
+        <dt class = "col-sm-2">
+            @Html.DisplayNameFor(model => model.Phone)
+        </dt>
+        <dd class = "col-sm-10">
+            @Html.DisplayFor(model => model.Phone)
+        </dd>
+        <dt class = "col-sm-2">
+            @Html.DisplayNameFor(model => model.Email)
+        </dt>
+        <dd class = "col-sm-10">
+            @Html.DisplayFor(model => model.Email)
+        </dd>
+    </dl>
+</div>
+<div>
+    <a asp-action="Edit" asp-route-id="@Model?.Id">Edit</a> |
+    <a asp-action="Index">Back to List</a>
+</div>
+
+
+// ==== Views\Spectators\Edit.cshtml ====
+@model ConcertSystemDomain.Model.Spectator
+
+@{
+    ViewData["Title"] = "Edit";
+}
+
+<h1>Edit</h1>
+
+<h4>Spectator</h4>
+<hr />
+<div class="row">
+    <div class="col-md-4">
+        <form asp-action="Edit">
+            <div asp-validation-summary="ModelOnly" class="text-danger"></div>
+            <div class="form-group">
+                <label asp-for="FullName" class="control-label"></label>
+                <input asp-for="FullName" class="form-control" />
+                <span asp-validation-for="FullName" class="text-danger"></span>
+            </div>
+            <div class="form-group">
+                <label asp-for="Phone" class="control-label"></label>
+                <input asp-for="Phone" class="form-control" />
+                <span asp-validation-for="Phone" class="text-danger"></span>
+            </div>
+            <div class="form-group">
+                <label asp-for="Email" class="control-label"></label>
+                <input asp-for="Email" class="form-control" />
+                <span asp-validation-for="Email" class="text-danger"></span>
+            </div>
+            <input type="hidden" asp-for="Id" />
+            <div class="form-group">
+                <input type="submit" value="Save" class="btn btn-primary" />
+            </div>
+        </form>
+    </div>
+</div>
+
+<div>
+    <a asp-action="Index">Back to List</a>
+</div>
+
+@section Scripts {
+    @{await Html.RenderPartialAsync("_ValidationScriptsPartial");}
+}
+
+
+// ==== Views\Spectators\Index.cshtml ====
+@model IEnumerable<ConcertSystemDomain.Model.Spectator>
+
+@{
+    ViewData["Title"] = "Index";
+}
+
+<h1>Index</h1>
+
+<p>
+    <a asp-action="Create">Create New</a>
+</p>
+<table class="table">
+    <thead>
+        <tr>
+            <th>
+                @Html.DisplayNameFor(model => model.FullName)
+            </th>
+            <th>
+                @Html.DisplayNameFor(model => model.Phone)
+            </th>
+            <th>
+                @Html.DisplayNameFor(model => model.Email)
+            </th>
+            <th></th>
+        </tr>
+    </thead>
+    <tbody>
+@foreach (var item in Model) {
+        <tr>
+            <td>
+                @Html.DisplayFor(modelItem => item.FullName)
+            </td>
+            <td>
+                @Html.DisplayFor(modelItem => item.Phone)
+            </td>
+            <td>
+                @Html.DisplayFor(modelItem => item.Email)
+            </td>
+            <td>
+                <a asp-action="Edit" asp-route-id="@item.Id">Edit</a> |
+                <a asp-action="Details" asp-route-id="@item.Id">Details</a> |
+                <a asp-action="Delete" asp-route-id="@item.Id">Delete</a>
+            </td>
+        </tr>
+}
+    </tbody>
+</table>
+
+
+// ==== Views\Tickets\Create.cshtml ====
+@model ConcertSystemDomain.Model.Ticket
+
+@{
+    ViewData["Title"] = "Create";
+}
+
+<h1>Create</h1>
+
+<h4>Ticket</h4>
+<hr />
+<div class="row">
+    <div class="col-md-4">
+        <form asp-action="Create">
+            <div asp-validation-summary="ModelOnly" class="text-danger"></div>
+            <div class="form-group">
+                <label asp-for="ConcertId" class="control-label"></label>
+                <select asp-for="ConcertId" class ="form-control" asp-items="ViewBag.ConcertId"></select>
+            </div>
+            <div class="form-group">
+                <label asp-for="Row" class="control-label"></label>
+                <input asp-for="Row" class="form-control" />
+                <span asp-validation-for="Row" class="text-danger"></span>
+            </div>
+            <div class="form-group">
+                <label asp-for="SeatNumber" class="control-label"></label>
+                <input asp-for="SeatNumber" class="form-control" />
+                <span asp-validation-for="SeatNumber" class="text-danger"></span>
+            </div>
+            <div class="form-group">
+                <label asp-for="BasePrice" class="control-label"></label>
+                <input asp-for="BasePrice" class="form-control" />
+                <span asp-validation-for="BasePrice" class="text-danger"></span>
+            </div>
+            <div class="form-group">
+                <input type="submit" value="Create" class="btn btn-primary" />
+            </div>
+        </form>
+    </div>
+</div>
+
+<div>
+    <a asp-action="Index">Back to List</a>
+</div>
+
+@section Scripts {
+    @{await Html.RenderPartialAsync("_ValidationScriptsPartial");}
+}
+
+
+// ==== Views\Tickets\Delete.cshtml ====
+@model ConcertSystemDomain.Model.Ticket
+
+@{
+    ViewData["Title"] = "Delete";
+}
+
+<h1>Delete</h1>
+
+<h3>Are you sure you want to delete this?</h3>
+<div>
+    <h4>Ticket</h4>
+    <hr />
+    <dl class="row">
+        <dt class = "col-sm-2">
+            @Html.DisplayNameFor(model => model.Row)
+        </dt>
+        <dd class = "col-sm-10">
+            @Html.DisplayFor(model => model.Row)
+        </dd>
+        <dt class = "col-sm-2">
+            @Html.DisplayNameFor(model => model.SeatNumber)
+        </dt>
+        <dd class = "col-sm-10">
+            @Html.DisplayFor(model => model.SeatNumber)
+        </dd>
+        <dt class = "col-sm-2">
+            @Html.DisplayNameFor(model => model.BasePrice)
+        </dt>
+        <dd class = "col-sm-10">
+            @Html.DisplayFor(model => model.BasePrice)
+        </dd>
+        <dt class = "col-sm-2">
+            @Html.DisplayNameFor(model => model.Status)
+        </dt>
+        <dd class = "col-sm-10">
+            @Html.DisplayFor(model => model.Status)
+        </dd>
+        <dt class = "col-sm-2">
+            @Html.DisplayNameFor(model => model.Concert)
+        </dt>
+        <dd class = "col-sm-10">
+            @Html.DisplayFor(model => model.Concert.Location)
+        </dd>
+    </dl>
+    
+    <form asp-action="Delete">
+        <input type="hidden" asp-for="Id" />
+        <input type="submit" value="Delete" class="btn btn-danger" /> |
+        <a asp-action="Index">Back to List</a>
+    </form>
+</div>
+
+
+// ==== Views\Tickets\Details.cshtml ====
+@model ConcertSystemDomain.Model.Ticket
+
+@{
+    ViewData["Title"] = "Details";
+}
+
+<h1>Details</h1>
+
+<div>
+    <h4>Ticket</h4>
+    <hr />
+    <dl class="row">
+        <dt class = "col-sm-2">
+            @Html.DisplayNameFor(model => model.Row)
+        </dt>
+        <dd class = "col-sm-10">
+            @Html.DisplayFor(model => model.Row)
+        </dd>
+        <dt class = "col-sm-2">
+            @Html.DisplayNameFor(model => model.SeatNumber)
+        </dt>
+        <dd class = "col-sm-10">
+            @Html.DisplayFor(model => model.SeatNumber)
+        </dd>
+        <dt class = "col-sm-2">
+            @Html.DisplayNameFor(model => model.BasePrice)
+        </dt>
+        <dd class = "col-sm-10">
+            @Html.DisplayFor(model => model.BasePrice)
+        </dd>
+        <dt class = "col-sm-2">
+            @Html.DisplayNameFor(model => model.Status)
+        </dt>
+        <dd class = "col-sm-10">
+            @Html.DisplayFor(model => model.Status)
+        </dd>
+        <dt class = "col-sm-2">
+            @Html.DisplayNameFor(model => model.Concert)
+        </dt>
+        <dd class = "col-sm-10">
+            @Html.DisplayFor(model => model.Concert.Location)
+        </dd>
+    </dl>
+</div>
+<div>
+    <a asp-action="Edit" asp-route-id="@Model?.Id">Edit</a> |
+    <a asp-action="Index">Back to List</a>
+</div>
+
+
+// ==== Views\Tickets\Edit.cshtml ====
+@model ConcertSystemDomain.Model.Ticket
+
+@{
+    ViewData["Title"] = "Edit";
+}
+
+<h1>Edit</h1>
+
+<h4>Ticket</h4>
+<hr />
+<div class="row">
+    <div class="col-md-4">
+        <form asp-action="Edit">
+            <div asp-validation-summary="ModelOnly" class="text-danger"></div>
+            <div class="form-group">
+                <label asp-for="ConcertId" class="control-label"></label>
+                <select asp-for="ConcertId" class="form-control" asp-items="ViewBag.ConcertId"></select>
+                <span asp-validation-for="ConcertId" class="text-danger"></span>
+            </div>
+            <div class="form-group">
+                <label asp-for="Row" class="control-label"></label>
+                <input asp-for="Row" class="form-control" />
+                <span asp-validation-for="Row" class="text-danger"></span>
+            </div>
+            <div class="form-group">
+                <label asp-for="SeatNumber" class="control-label"></label>
+                <input asp-for="SeatNumber" class="form-control" />
+                <span asp-validation-for="SeatNumber" class="text-danger"></span>
+            </div>
+            <div class="form-group">
+                <label asp-for="BasePrice" class="control-label"></label>
+                <input asp-for="BasePrice" class="form-control" />
+                <span asp-validation-for="BasePrice" class="text-danger"></span>
+            </div>
+            <div class="form-group">
+                <label asp-for="Status" class="control-label"></label>
+                <input asp-for="Status" class="form-control" />
+                <span asp-validation-for="Status" class="text-danger"></span>
+            </div>
+            <input type="hidden" asp-for="Id" />
+            <div class="form-group">
+                <input type="submit" value="Save" class="btn btn-primary" />
+            </div>
+        </form>
+    </div>
+</div>
+
+<div>
+    <a asp-action="Index">Back to List</a>
+</div>
+
+@section Scripts {
+    @{await Html.RenderPartialAsync("_ValidationScriptsPartial");}
+}
+
+
+// ==== Views\Tickets\Index.cshtml ====
+@model IEnumerable<ConcertSystemDomain.Model.Ticket>
+
+@{
+    ViewData["Title"] = "Index";
+}
+
+<h1>Index</h1>
+
+<p>
+    <a asp-action="Create">Create New</a>
+</p>
+<table class="table">
+    <thead>
+        <tr>
+            <th>
+                @Html.DisplayNameFor(model => model.Row)
+            </th>
+            <th>
+                @Html.DisplayNameFor(model => model.SeatNumber)
+            </th>
+            <th>
+                @Html.DisplayNameFor(model => model.BasePrice)
+            </th>
+            <th>
+                @Html.DisplayNameFor(model => model.Status)
+            </th>
+            <th>
+                @Html.DisplayNameFor(model => model.Concert)
+            </th>
+            <th></th>
+        </tr>
+    </thead>
+    <tbody>
+@foreach (var item in Model) {
+        <tr>
+            <td>
+                @Html.DisplayFor(modelItem => item.Row)
+            </td>
+            <td>
+                @Html.DisplayFor(modelItem => item.SeatNumber)
+            </td>
+            <td>
+                @Html.DisplayFor(modelItem => item.BasePrice)
+            </td>
+            <td>
+                @Html.DisplayFor(modelItem => item.Status)
+            </td>
+            <td>
+                @Html.DisplayFor(modelItem => item.Concert.Location)
+            </td>
+            <td>
+                <a asp-action="Edit" asp-route-id="@item.Id">Edit</a> |
+                <a asp-action="Details" asp-route-id="@item.Id">Details</a> |
+                <a asp-action="Delete" asp-route-id="@item.Id">Delete</a>
+            </td>
+        </tr>
+}
+    </tbody>
+</table>
+
+
