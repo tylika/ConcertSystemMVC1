@@ -24,6 +24,18 @@
     <a asp-action="Create" class="btn btn-primary">Додати подію</a>
 </p>
 
+<!-- Діаграми -->
+<div class="row">
+    <div class="col-md-6">
+        <h3>Кількість концертів за роками</h3>
+        <div id="concertsByYearChart"></div>
+    </div>
+    <div class="col-md-6">
+        <h3>Кількість проданих квитків за жанрами</h3>
+        <div id="ticketsByGenreChart"></div>
+    </div>
+</div>
+
 <!-- Перевірка, чи є події -->
 @if (Model.Any())
 {
@@ -70,4 +82,60 @@ else
     <div class="alert alert-info" role="alert">
         Вибачте, схожих подій немає, оберіть інші фільтри.
     </div>
+}
+
+@section Scripts {
+    <script type="text/javascript" src="https://www.gstatic.com/charts/loader.js"></script>
+    <script type="text/javascript">
+        google.charts.load('current', { 'packages': ['corechart'] });
+        google.charts.setOnLoadCallback(drawCharts);
+
+        function drawCharts() {
+            // Діаграма 1: Кількість концертів за роками
+            fetch('/api/charts/concertsByYear')
+                .then(response => response.json())
+                .then(data => {
+                    const dataTable = new google.visualization.DataTable();
+                    dataTable.addColumn('string', 'Рік');
+                    dataTable.addColumn('number', 'Кількість концертів');
+
+                    data.forEach(item => {
+                        dataTable.addRow([item.year, item.count]);
+                    });
+
+                    const options = {
+                        title: 'Концерти за роками',
+                        width: 600,
+                        height: 400,
+                        legend: { position: 'none' }
+                    };
+
+                    const chart = new google.visualization.ColumnChart(document.getElementById('concertsByYearChart'));
+                    chart.draw(dataTable, options);
+                });
+
+            // Діаграма 2: Кількість проданих квитків за жанрами
+            fetch('/api/charts/ticketsByGenre')
+                .then(response => response.json())
+                .then(data => {
+                    const dataTable = new google.visualization.DataTable();
+                    dataTable.addColumn('string', 'Жанр');
+                    dataTable.addColumn('number', 'Кількість проданих квитків');
+
+                    data.forEach(item => {
+                        dataTable.addRow([item.genre, item.count]);
+                    });
+
+                    const options = {
+                        title: 'Продані квитки за жанрами',
+                        width: 600,
+                        height: 400,
+                        legend: { position: 'none' }
+                    };
+
+                    const chart = new google.visualization.ColumnChart(document.getElementById('ticketsByGenreChart'));
+                    chart.draw(dataTable, options);
+                });
+        }
+    </script>
 }

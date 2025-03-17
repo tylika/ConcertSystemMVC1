@@ -257,6 +257,7 @@ namespace ConcertSystemInfrastructure.Controllers
         [ValidateAntiForgeryToken]
         public async Task<IActionResult> BuyTicket(int id, [Bind("FullName,Phone,Email")] Spectator spectator, int? ticketId)
         {
+            // Отримуємо концерт з бази даних разом із квитками
             var concert = await _context.Concerts
                 .Include(c => c.Tickets)
                 .FirstOrDefaultAsync(m => m.Id == id);
@@ -265,74 +266,90 @@ namespace ConcertSystemInfrastructure.Controllers
                 return NotFound();
             }
 
+            // Перевіряємо, чи є доступні квитки
             if (concert.AvailableTickets <= 0)
             {
                 TempData["ErrorMessage"] = "На жаль, квитки на цей концерт закінчилися.";
                 return RedirectToAction(nameof(Index));
             }
 
-            // Перевіряємо, чи глядач уже існує за email
-            var existingSpectator = await _context.Spectators
-                .FirstOrDefaultAsync(s => s.Email == spectator.Email);
-            if (existingSpectator == null)
+            // Починаємо транзакцію для забезпечення цілісності даних
+            using var transaction = await _context.Database.BeginTransactionAsync();
+            try
             {
-                // Якщо глядача немає, додаємо нового
-                if (!ModelState.IsValid)
+                // Перевіряємо, чи глядач уже існує за email
+                var existingSpectator = await _context.Spectators
+                    .FirstOrDefaultAsync(s => s.Email == spectator.Email);
+                if (existingSpectator == null)
                 {
-                    ViewBag.Concert = concert;
-                    ViewBag.Tickets = await _context.Tickets
-                        .Where(t => t.ConcertId == concert.Id && t.Status == "Available")
-                        .ToListAsync();
-                    return View(spectator);
+                    // Якщо глядача немає, додаємо нового
+                    if (!ModelState.IsValid)
+                    {
+                        ViewBag.Concert = concert;
+                        ViewBag.Tickets = await _context.Tickets
+                            .Where(t => t.ConcertId == concert.Id && t.Status == "Available")
+                            .ToListAsync();
+                        return View(spectator);
+                    }
+                    _context.Spectators.Add(spectator);
+                    await _context.SaveChangesAsync();
+                    existingSpectator = spectator;
                 }
-                _context.Spectators.Add(spectator);
+
+                // Вибираємо квиток: або за ticketId, або перший доступний
+                var ticket = ticketId.HasValue
+                    ? await _context.Tickets.FirstOrDefaultAsync(t => t.Id == ticketId.Value && t.Status == "Available")
+                    : await _context.Tickets.FirstOrDefaultAsync(t => t.ConcertId == concert.Id && t.Status == "Available");
+
+                if (ticket == null)
+                {
+                    TempData["ErrorMessage"] = "Немає доступних квитків для цього концерту.";
+                    return RedirectToAction(nameof(Index));
+                }
+
+                // Створюємо запис про покупку
+                var purchase = new Purchase
+                {
+                    SpectatorId = existingSpectator.Id,
+                    PurchaseDate = DateTime.Now,
+                    Status = "Completed"
+                };
+                _context.Purchases.Add(purchase);
                 await _context.SaveChangesAsync();
-                existingSpectator = spectator;
-            }
 
-            // Вибираємо квиток (якщо не передано ticketId, беремо перший доступний)
-            var ticket = ticketId.HasValue
-                ? await _context.Tickets.FirstOrDefaultAsync(t => t.Id == ticketId.Value && t.Status == "Available")
-                : await _context.Tickets.FirstOrDefaultAsync(t => t.ConcertId == concert.Id && t.Status == "Available");
+                // Створюємо елемент покупки
+                var purchaseItem = new PurchaseItem
+                {
+                    PurchaseId = purchase.Id,
+                    TicketId = ticket.Id,
+                    Quantity = 1, // Купуємо один квиток
+                    Price = ticket.BasePrice
+                };
+                _context.PurchaseItems.Add(purchaseItem);
 
-            if (ticket == null)
-            {
-                TempData["ErrorMessage"] = "Немає доступних квитків для цього концерту.";
+                // Оновлюємо статус квитка та кількість доступних квитків
+                ticket.Status = "Sold";
+                concert.AvailableTickets--;
+                _context.Update(ticket);
+                _context.Update(concert);
+
+                // Зберігаємо всі зміни в базі даних
+                await _context.SaveChangesAsync();
+
+                // Підтверджуємо транзакцію
+                await transaction.CommitAsync();
+
+                TempData["SuccessMessage"] = "Квиток успішно куплено!";
                 return RedirectToAction(nameof(Index));
             }
-
-            // Створюємо покупку (Purchase)
-            var purchase = new Purchase
+            catch (Exception ex)
             {
-                SpectatorId = existingSpectator.Id,
-                PurchaseDate = DateTime.Now,
-                Status = "Completed"
-            };
-            _context.Purchases.Add(purchase);
-            await _context.SaveChangesAsync();
-
-            // Створюємо елемент покупки (PurchaseItem)
-            var purchaseItem = new PurchaseItem
-            {
-                PurchaseId = purchase.Id,
-                TicketId = ticket.Id,
-                Quantity = 1, // Купуємо один квиток
-                Price = ticket.BasePrice
-            };
-            _context.PurchaseItems.Add(purchaseItem);
-
-            // Оновлюємо статус квитка та кількість доступних квитків
-            ticket.Status = "Sold";
-            concert.AvailableTickets--;
-            _context.Update(ticket);
-            _context.Update(concert);
-
-            await _context.SaveChangesAsync();
-
-            TempData["SuccessMessage"] = "Квиток успішно куплено!";
-            return RedirectToAction(nameof(Index));
+                // У разі помилки відкочуємо транзакцію
+                await transaction.RollbackAsync();
+                TempData["ErrorMessage"] = $"Помилка при покупці: {ex.Message}";
+                return RedirectToAction(nameof(Index));
+            }
         }
-
         private bool ConcertExists(int id)
         {
             return _context.Concerts.Any(e => e.Id == id);

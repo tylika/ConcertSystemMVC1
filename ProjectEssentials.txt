@@ -198,20 +198,26 @@ public partial class PurchaseItem : Entity
 // ==== Model\Spectator.cs ====
 using System;
 using System.Collections.Generic;
+using System.ComponentModel.DataAnnotations;
 
 namespace ConcertSystemDomain.Model;
 
 public partial class Spectator : Entity
 {
+    [Required(ErrorMessage = "Поле ПІБ є обов'язковим")]
+    [Display(Name = "ПІБ")]
     public string FullName { get; set; } = null!;
 
+    [Display(Name = "Телефон")]
     public string? Phone { get; set; }
 
+    [Required(ErrorMessage = "Поле Електронна пошта є обов'язковим")]
+    [EmailAddress(ErrorMessage = "Невірний формат електронної пошти")]
+    [Display(Name = "Електронна пошта")]
     public string Email { get; set; } = null!;
 
     public virtual ICollection<Purchase> Purchases { get; set; } = new List<Purchase>();
 }
-
 
 // ==== Model\Ticket.cs ====
 using System;
@@ -463,6 +469,57 @@ namespace ConcertSystemInfrastructure.Controllers
         private bool ArtistExists(int id)
         {
             return _context.Artists.Any(e => e.Id == id);
+        }
+    }
+}
+
+// ==== Controllers\ChartsController.cs ====
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
+using ConcertSystemDomain.Model;
+using ConcertSystemInfrastructure;
+
+namespace ConcertSystemInfrastructure.Controllers
+{
+    [Route("api/[controller]")]
+    [ApiController]
+    public class ChartsController : ControllerBase
+    {
+        private readonly ConcertTicketSystemContext _context;
+
+        public ChartsController(ConcertTicketSystemContext context)
+        {
+            _context = context;
+        }
+
+        // Діаграма 1: Кількість концертів за роками
+        private record ConcertsByYearResponseItem(string Year, int Count);
+
+        [HttpGet("concertsByYear")]
+        public async Task<JsonResult> GetConcertsByYearAsync(CancellationToken cancellationToken)
+        {
+            var responseItems = await _context.Concerts
+                .GroupBy(concert => concert.ConcertDate.Year)
+                .Select(group => new ConcertsByYearResponseItem(group.Key.ToString(), group.Count()))
+                .ToListAsync(cancellationToken);
+            return new JsonResult(responseItems);
+        }
+
+        // Діаграма 2: Кількість проданих квитків за жанрами
+        private record TicketsByGenreResponseItem(string Genre, int Count);
+
+        [HttpGet("ticketsByGenre")]
+        public async Task<JsonResult> GetTicketsByGenreAsync(CancellationToken cancellationToken)
+        {
+            var responseItems = await _context.Tickets
+                .Where(t => t.Status == "Sold")
+                .Include(t => t.Concert)
+                .ThenInclude(c => c.Genres)
+                .SelectMany(t => t.Concert.Genres)
+                .GroupBy(g => g.Name)
+                .Select(group => new TicketsByGenreResponseItem(group.Key, group.Count()))
+                .ToListAsync(cancellationToken);
+            return new JsonResult(responseItems);
         }
     }
 }
@@ -727,6 +784,7 @@ namespace ConcertSystemInfrastructure.Controllers
         [ValidateAntiForgeryToken]
         public async Task<IActionResult> BuyTicket(int id, [Bind("FullName,Phone,Email")] Spectator spectator, int? ticketId)
         {
+            // Отримуємо концерт з бази даних разом із квитками
             var concert = await _context.Concerts
                 .Include(c => c.Tickets)
                 .FirstOrDefaultAsync(m => m.Id == id);
@@ -735,74 +793,90 @@ namespace ConcertSystemInfrastructure.Controllers
                 return NotFound();
             }
 
+            // Перевіряємо, чи є доступні квитки
             if (concert.AvailableTickets <= 0)
             {
                 TempData["ErrorMessage"] = "На жаль, квитки на цей концерт закінчилися.";
                 return RedirectToAction(nameof(Index));
             }
 
-            // Перевіряємо, чи глядач уже існує за email
-            var existingSpectator = await _context.Spectators
-                .FirstOrDefaultAsync(s => s.Email == spectator.Email);
-            if (existingSpectator == null)
+            // Починаємо транзакцію для забезпечення цілісності даних
+            using var transaction = await _context.Database.BeginTransactionAsync();
+            try
             {
-                // Якщо глядача немає, додаємо нового
-                if (!ModelState.IsValid)
+                // Перевіряємо, чи глядач уже існує за email
+                var existingSpectator = await _context.Spectators
+                    .FirstOrDefaultAsync(s => s.Email == spectator.Email);
+                if (existingSpectator == null)
                 {
-                    ViewBag.Concert = concert;
-                    ViewBag.Tickets = await _context.Tickets
-                        .Where(t => t.ConcertId == concert.Id && t.Status == "Available")
-                        .ToListAsync();
-                    return View(spectator);
+                    // Якщо глядача немає, додаємо нового
+                    if (!ModelState.IsValid)
+                    {
+                        ViewBag.Concert = concert;
+                        ViewBag.Tickets = await _context.Tickets
+                            .Where(t => t.ConcertId == concert.Id && t.Status == "Available")
+                            .ToListAsync();
+                        return View(spectator);
+                    }
+                    _context.Spectators.Add(spectator);
+                    await _context.SaveChangesAsync();
+                    existingSpectator = spectator;
                 }
-                _context.Spectators.Add(spectator);
+
+                // Вибираємо квиток: або за ticketId, або перший доступний
+                var ticket = ticketId.HasValue
+                    ? await _context.Tickets.FirstOrDefaultAsync(t => t.Id == ticketId.Value && t.Status == "Available")
+                    : await _context.Tickets.FirstOrDefaultAsync(t => t.ConcertId == concert.Id && t.Status == "Available");
+
+                if (ticket == null)
+                {
+                    TempData["ErrorMessage"] = "Немає доступних квитків для цього концерту.";
+                    return RedirectToAction(nameof(Index));
+                }
+
+                // Створюємо запис про покупку
+                var purchase = new Purchase
+                {
+                    SpectatorId = existingSpectator.Id,
+                    PurchaseDate = DateTime.Now,
+                    Status = "Completed"
+                };
+                _context.Purchases.Add(purchase);
                 await _context.SaveChangesAsync();
-                existingSpectator = spectator;
-            }
 
-            // Вибираємо квиток (якщо не передано ticketId, беремо перший доступний)
-            var ticket = ticketId.HasValue
-                ? await _context.Tickets.FirstOrDefaultAsync(t => t.Id == ticketId.Value && t.Status == "Available")
-                : await _context.Tickets.FirstOrDefaultAsync(t => t.ConcertId == concert.Id && t.Status == "Available");
+                // Створюємо елемент покупки
+                var purchaseItem = new PurchaseItem
+                {
+                    PurchaseId = purchase.Id,
+                    TicketId = ticket.Id,
+                    Quantity = 1, // Купуємо один квиток
+                    Price = ticket.BasePrice
+                };
+                _context.PurchaseItems.Add(purchaseItem);
 
-            if (ticket == null)
-            {
-                TempData["ErrorMessage"] = "Немає доступних квитків для цього концерту.";
+                // Оновлюємо статус квитка та кількість доступних квитків
+                ticket.Status = "Sold";
+                concert.AvailableTickets--;
+                _context.Update(ticket);
+                _context.Update(concert);
+
+                // Зберігаємо всі зміни в базі даних
+                await _context.SaveChangesAsync();
+
+                // Підтверджуємо транзакцію
+                await transaction.CommitAsync();
+
+                TempData["SuccessMessage"] = "Квиток успішно куплено!";
                 return RedirectToAction(nameof(Index));
             }
-
-            // Створюємо покупку (Purchase)
-            var purchase = new Purchase
+            catch (Exception ex)
             {
-                SpectatorId = existingSpectator.Id,
-                PurchaseDate = DateTime.Now,
-                Status = "Completed"
-            };
-            _context.Purchases.Add(purchase);
-            await _context.SaveChangesAsync();
-
-            // Створюємо елемент покупки (PurchaseItem)
-            var purchaseItem = new PurchaseItem
-            {
-                PurchaseId = purchase.Id,
-                TicketId = ticket.Id,
-                Quantity = 1, // Купуємо один квиток
-                Price = ticket.BasePrice
-            };
-            _context.PurchaseItems.Add(purchaseItem);
-
-            // Оновлюємо статус квитка та кількість доступних квитків
-            ticket.Status = "Sold";
-            concert.AvailableTickets--;
-            _context.Update(ticket);
-            _context.Update(concert);
-
-            await _context.SaveChangesAsync();
-
-            TempData["SuccessMessage"] = "Квиток успішно куплено!";
-            return RedirectToAction(nameof(Index));
+                // У разі помилки відкочуємо транзакцію
+                await transaction.RollbackAsync();
+                TempData["ErrorMessage"] = $"Помилка при покупці: {ex.Message}";
+                return RedirectToAction(nameof(Index));
+            }
         }
-
         private bool ConcertExists(int id)
         {
             return _context.Concerts.Any(e => e.Id == id);
@@ -1333,15 +1407,11 @@ namespace ConcertSystemInfrastructure.Controllers
 
 
 // ==== Controllers\SpectatorsController.cs ====
-using System;
-using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.AspNetCore.Mvc.Rendering;
 using Microsoft.EntityFrameworkCore;
 using ConcertSystemDomain.Model;
-using ConcertSystemInfrastructure;
 
 namespace ConcertSystemInfrastructure.Controllers
 {
@@ -1354,43 +1424,44 @@ namespace ConcertSystemInfrastructure.Controllers
             _context = context;
         }
 
-        // GET: Spectators
         public async Task<IActionResult> Index()
         {
             return View(await _context.Spectators.ToListAsync());
         }
 
-        // GET: Spectators/Details/5
-        public async Task<IActionResult> Details(int? id)
-        {
-            if (id == null)
-            {
-                return NotFound();
-            }
-
-            var spectator = await _context.Spectators
-                .FirstOrDefaultAsync(m => m.Id == id);
-            if (spectator == null)
-            {
-                return NotFound();
-            }
-
-            return View(spectator);
-        }
-
-        // GET: Spectators/Create
         public IActionResult Create()
         {
             return View();
         }
 
-        // POST: Spectators/Create
-        // To protect from overposting attacks, enable the specific properties you want to bind to.
-        // For more details, see http://go.microsoft.com/fwlink/?LinkId=317598.
         [HttpPost]
         [ValidateAntiForgeryToken]
-        public async Task<IActionResult> Create([Bind("FullName,Phone,Email,Id")] Spectator spectator)
+        public async Task<IActionResult> Create([Bind("FullName,Phone,Email")] Spectator spectator)
         {
+            // Перевірка унікальності ПІБ
+            if (await _context.Spectators.AnyAsync(s => s.FullName == spectator.FullName))
+            {
+                ModelState.AddModelError("FullName", "Глядач із таким ПІБ уже існує.");
+            }
+
+            // Перевірка унікальності телефону
+            if (!string.IsNullOrEmpty(spectator.Phone) && await _context.Spectators.AnyAsync(s => s.Phone == spectator.Phone))
+            {
+                ModelState.AddModelError("Phone", "Глядач із таким номером телефону уже існує.");
+            }
+
+            // Перевірка унікальності email
+            if (await _context.Spectators.AnyAsync(s => s.Email == spectator.Email))
+            {
+                ModelState.AddModelError("Email", "Глядач із такою електронною поштою уже існує.");
+            }
+
+            // Кастомна валідація номера телефону
+            if (!string.IsNullOrEmpty(spectator.Phone) && (spectator.Phone.Length != 13 || !spectator.Phone.StartsWith("+") || !spectator.Phone.Substring(1).All(char.IsDigit)))
+            {
+                ModelState.AddModelError("Phone", "Номер телефону має бути у форматі +380XXXXXXXXX (13 символів, лише цифри після +).");
+            }
+
             if (ModelState.IsValid)
             {
                 _context.Add(spectator);
@@ -1400,32 +1471,43 @@ namespace ConcertSystemInfrastructure.Controllers
             return View(spectator);
         }
 
-        // GET: Spectators/Edit/5
         public async Task<IActionResult> Edit(int? id)
         {
-            if (id == null)
-            {
-                return NotFound();
-            }
+            if (id == null) return NotFound();
 
             var spectator = await _context.Spectators.FindAsync(id);
-            if (spectator == null)
-            {
-                return NotFound();
-            }
+            if (spectator == null) return NotFound();
             return View(spectator);
         }
 
-        // POST: Spectators/Edit/5
-        // To protect from overposting attacks, enable the specific properties you want to bind to.
-        // For more details, see http://go.microsoft.com/fwlink/?LinkId=317598.
         [HttpPost]
         [ValidateAntiForgeryToken]
-        public async Task<IActionResult> Edit(int id, [Bind("FullName,Phone,Email,Id")] Spectator spectator)
+        public async Task<IActionResult> Edit(int id, [Bind("Id,FullName,Phone,Email")] Spectator spectator)
         {
-            if (id != spectator.Id)
+            if (id != spectator.Id) return NotFound();
+
+            // Перевірка унікальності ПІБ (крім поточного запису)
+            if (await _context.Spectators.AnyAsync(s => s.FullName == spectator.FullName && s.Id != spectator.Id))
             {
-                return NotFound();
+                ModelState.AddModelError("FullName", "Глядач із таким ПІБ уже існує.");
+            }
+
+            // Перевірка унікальності телефону (крім поточного запису)
+            if (!string.IsNullOrEmpty(spectator.Phone) && await _context.Spectators.AnyAsync(s => s.Phone == spectator.Phone && s.Id != spectator.Id))
+            {
+                ModelState.AddModelError("Phone", "Глядач із таким номером телефону уже існує.");
+            }
+
+            // Перевірка унікальності email (крім поточного запису)
+            if (await _context.Spectators.AnyAsync(s => s.Email == spectator.Email && s.Id != spectator.Id))
+            {
+                ModelState.AddModelError("Email", "Глядач із такою електронною поштою уже існує.");
+            }
+
+            // Кастомна валідація номера телефону
+            if (!string.IsNullOrEmpty(spectator.Phone) && (spectator.Phone.Length != 13 || !spectator.Phone.StartsWith("+") || !spectator.Phone.Substring(1).All(char.IsDigit)))
+            {
+                ModelState.AddModelError("Phone", "Номер телефону має бути у форматі +380XXXXXXXXX (13 символів, лише цифри після +).");
             }
 
             if (ModelState.IsValid)
@@ -1437,39 +1519,24 @@ namespace ConcertSystemInfrastructure.Controllers
                 }
                 catch (DbUpdateConcurrencyException)
                 {
-                    if (!SpectatorExists(spectator.Id))
-                    {
-                        return NotFound();
-                    }
-                    else
-                    {
-                        throw;
-                    }
+                    if (!SpectatorExists(spectator.Id)) return NotFound();
+                    throw;
                 }
                 return RedirectToAction(nameof(Index));
             }
             return View(spectator);
         }
 
-        // GET: Spectators/Delete/5
         public async Task<IActionResult> Delete(int? id)
         {
-            if (id == null)
-            {
-                return NotFound();
-            }
+            if (id == null) return NotFound();
 
-            var spectator = await _context.Spectators
-                .FirstOrDefaultAsync(m => m.Id == id);
-            if (spectator == null)
-            {
-                return NotFound();
-            }
+            var spectator = await _context.Spectators.FirstOrDefaultAsync(m => m.Id == id);
+            if (spectator == null) return NotFound();
 
             return View(spectator);
         }
 
-        // POST: Spectators/Delete/5
         [HttpPost, ActionName("Delete")]
         [ValidateAntiForgeryToken]
         public async Task<IActionResult> DeleteConfirmed(int id)
@@ -1478,9 +1545,8 @@ namespace ConcertSystemInfrastructure.Controllers
             if (spectator != null)
             {
                 _context.Spectators.Remove(spectator);
+                await _context.SaveChangesAsync();
             }
-
-            await _context.SaveChangesAsync();
             return RedirectToAction(nameof(Index));
         }
 
@@ -1490,7 +1556,6 @@ namespace ConcertSystemInfrastructure.Controllers
         }
     }
 }
-
 
 // ==== Controllers\TicketsController.cs ====
 using System;
@@ -2295,6 +2360,18 @@ namespace ConcertSystemInfrastructure.Models
     <a asp-action="Create" class="btn btn-primary">Додати подію</a>
 </p>
 
+<!-- Діаграми -->
+<div class="row">
+    <div class="col-md-6">
+        <h3>Кількість концертів за роками</h3>
+        <div id="concertsByYearChart"></div>
+    </div>
+    <div class="col-md-6">
+        <h3>Кількість проданих квитків за жанрами</h3>
+        <div id="ticketsByGenreChart"></div>
+    </div>
+</div>
+
 <!-- Перевірка, чи є події -->
 @if (Model.Any())
 {
@@ -2341,6 +2418,62 @@ else
     <div class="alert alert-info" role="alert">
         Вибачте, схожих подій немає, оберіть інші фільтри.
     </div>
+}
+
+@section Scripts {
+    <script type="text/javascript" src="https://www.gstatic.com/charts/loader.js"></script>
+    <script type="text/javascript">
+        google.charts.load('current', { 'packages': ['corechart'] });
+        google.charts.setOnLoadCallback(drawCharts);
+
+        function drawCharts() {
+            // Діаграма 1: Кількість концертів за роками
+            fetch('/api/charts/concertsByYear')
+                .then(response => response.json())
+                .then(data => {
+                    const dataTable = new google.visualization.DataTable();
+                    dataTable.addColumn('string', 'Рік');
+                    dataTable.addColumn('number', 'Кількість концертів');
+
+                    data.forEach(item => {
+                        dataTable.addRow([item.year, item.count]);
+                    });
+
+                    const options = {
+                        title: 'Концерти за роками',
+                        width: 600,
+                        height: 400,
+                        legend: { position: 'none' }
+                    };
+
+                    const chart = new google.visualization.ColumnChart(document.getElementById('concertsByYearChart'));
+                    chart.draw(dataTable, options);
+                });
+
+            // Діаграма 2: Кількість проданих квитків за жанрами
+            fetch('/api/charts/ticketsByGenre')
+                .then(response => response.json())
+                .then(data => {
+                    const dataTable = new google.visualization.DataTable();
+                    dataTable.addColumn('string', 'Жанр');
+                    dataTable.addColumn('number', 'Кількість проданих квитків');
+
+                    data.forEach(item => {
+                        dataTable.addRow([item.genre, item.count]);
+                    });
+
+                    const options = {
+                        title: 'Продані квитки за жанрами',
+                        width: 600,
+                        height: 400,
+                        legend: { position: 'none' }
+                    };
+
+                    const chart = new google.visualization.ColumnChart(document.getElementById('ticketsByGenreChart'));
+                    chart.draw(dataTable, options);
+                });
+        }
+    </script>
 }
 
 // ==== Views\Genres\Create.cshtml ====
@@ -3083,15 +3216,22 @@ else
                         <li class="nav-item">
                             <a class="nav-link text-dark" asp-area="" asp-controller="Artists" asp-action="Index">Артисти</a>
                         </li>
+                        <li class="nav-item">
+                            <a class="nav-link text-dark" asp-area="" asp-controller="Spectators" asp-action="Index">Глядачі</a>
+                        </li>
                     </ul>
                 </div>
             </div>
         </nav>
     </header>
-    <div class="container">
-        <main role="main" class="pb-3">
-            @RenderBody()
-        </main>
+
+    <div class="wrapper">
+        <div class="container">
+            <main role="main" class="pb-3">
+                @RenderBody()
+            </main>
+        </div>
+        <div class="push"></div>
     </div>
 
     <footer class="border-top footer text-muted">
@@ -3168,12 +3308,12 @@ button.accept-policy {
 @model ConcertSystemDomain.Model.Spectator
 
 @{
-    ViewData["Title"] = "Create";
+    ViewData["Title"] = "Додати глядача";
 }
 
-<h1>Create</h1>
+<h1>Додати глядача</h1>
 
-<h4>Spectator</h4>
+<h4>Глядач</h4>
 <hr />
 <div class="row">
     <div class="col-md-4">
@@ -3187,7 +3327,8 @@ button.accept-policy {
             <div class="form-group">
                 <label asp-for="Phone" class="control-label"></label>
                 <input asp-for="Phone" class="form-control" />
-                <span asp-validation-for="Phone" class="text-danger"></span>
+                <small id="phone-error" class="form-text text-danger" style="display: none;">Номер телефону має бути у форматі +380XXXXXXXXX (13 символів, лише цифри після +).</small>
+                <span asp-validation-for="Phone" class="text-danger" style="display: none;"></span>
             </div>
             <div class="form-group">
                 <label asp-for="Email" class="control-label"></label>
@@ -3195,112 +3336,134 @@ button.accept-policy {
                 <span asp-validation-for="Email" class="text-danger"></span>
             </div>
             <div class="form-group">
-                <input type="submit" value="Create" class="btn btn-primary" />
+                <input type="submit" value="Додати" class="btn btn-primary" />
             </div>
         </form>
     </div>
 </div>
 
 <div>
-    <a asp-action="Index">Back to List</a>
+    <a asp-action="Index">Повернутися до списку</a>
 </div>
 
 @section Scripts {
-    @{await Html.RenderPartialAsync("_ValidationScriptsPartial");}
-}
+    @{
+        await Html.RenderPartialAsync("_ValidationScriptsPartial");
+    }
+    <script>
+        // Отримуємо елементи
+        var phoneInput = document.querySelector('input[name="Phone"]');
+        var phoneError = document.getElementById('phone-error');
 
+        // Додаємо обробник події для відображення помилки
+        phoneInput.addEventListener('input', function () {
+            var phoneValue = this.value;
+            if (phoneValue && (phoneValue.length !== 13 || !phoneValue.startsWith('+') || !phoneValue.substring(1).match(/^\d+$/))) {
+                phoneError.style.display = 'block';
+            } else {
+                phoneError.style.display = 'none';
+            }
+        });
+
+        // Перевіряємо при завантаженні сторінки
+        var validationMessage = document.querySelector('span[data-valmsg-for="Phone"][data-valmsg-replace="true"]');
+        if (validationMessage && validationMessage.textContent) {
+            phoneError.style.display = 'block';
+            phoneError.textContent = validationMessage.textContent;
+            validationMessage.style.display = 'none';
+        }
+    </script>
+}
 
 // ==== Views\Spectators\Delete.cshtml ====
 @model ConcertSystemDomain.Model.Spectator
 
 @{
-    ViewData["Title"] = "Delete";
+    ViewData["Title"] = "Видалити глядача";
 }
 
-<h1>Delete</h1>
+<h1>Видалити глядача</h1>
 
-<h3>Are you sure you want to delete this?</h3>
+<h3>Ви впевнені, що хочете видалити цього глядача?</h3>
 <div>
-    <h4>Spectator</h4>
+    <h4>Глядач</h4>
     <hr />
     <dl class="row">
-        <dt class = "col-sm-2">
-            @Html.DisplayNameFor(model => model.FullName)
+        <dt class="col-sm-2">
+            ПІБ
         </dt>
-        <dd class = "col-sm-10">
+        <dd class="col-sm-10">
             @Html.DisplayFor(model => model.FullName)
         </dd>
-        <dt class = "col-sm-2">
-            @Html.DisplayNameFor(model => model.Phone)
+        <dt class="col-sm-2">
+            Телефон
         </dt>
-        <dd class = "col-sm-10">
+        <dd class="col-sm-10">
             @Html.DisplayFor(model => model.Phone)
         </dd>
-        <dt class = "col-sm-2">
-            @Html.DisplayNameFor(model => model.Email)
+        <dt class="col-sm-2">
+            Електронна пошта
         </dt>
-        <dd class = "col-sm-10">
+        <dd class="col-sm-10">
             @Html.DisplayFor(model => model.Email)
         </dd>
     </dl>
-    
+
     <form asp-action="Delete">
         <input type="hidden" asp-for="Id" />
-        <input type="submit" value="Delete" class="btn btn-danger" /> |
-        <a asp-action="Index">Back to List</a>
+        <input type="submit" value="Видалити" class="btn btn-danger" /> |
+        <a asp-action="Index">Повернутися до списку</a>
     </form>
 </div>
-
 
 // ==== Views\Spectators\Details.cshtml ====
 @model ConcertSystemDomain.Model.Spectator
 
 @{
-    ViewData["Title"] = "Details";
+    ViewData["Title"] = "Деталі глядача";
 }
 
-<h1>Details</h1>
+<h1>Деталі глядача</h1>
 
 <div>
-    <h4>Spectator</h4>
+    <h4>Глядач</h4>
     <hr />
     <dl class="row">
-        <dt class = "col-sm-2">
-            @Html.DisplayNameFor(model => model.FullName)
+        <dt class="col-sm-2">
+            ПІБ
         </dt>
-        <dd class = "col-sm-10">
+        <dd class="col-sm-10">
             @Html.DisplayFor(model => model.FullName)
         </dd>
-        <dt class = "col-sm-2">
-            @Html.DisplayNameFor(model => model.Phone)
+        <dt class="col-sm-2">
+            Телефон
         </dt>
-        <dd class = "col-sm-10">
+        <dd class="col-sm-10">
             @Html.DisplayFor(model => model.Phone)
         </dd>
-        <dt class = "col-sm-2">
-            @Html.DisplayNameFor(model => model.Email)
+        <dt class="col-sm-2">
+            Електронна пошта
         </dt>
-        <dd class = "col-sm-10">
+        <dd class="col-sm-10">
             @Html.DisplayFor(model => model.Email)
         </dd>
     </dl>
 </div>
 <div>
-    <a asp-action="Edit" asp-route-id="@Model?.Id">Edit</a> |
-    <a asp-action="Index">Back to List</a>
+    <a asp-action="Edit" asp-route-id="@Model?.Id">Редагувати</a> |
+    <a asp-action="Index">Повернутися до списку</a>
 </div>
-
 
 // ==== Views\Spectators\Edit.cshtml ====
 @model ConcertSystemDomain.Model.Spectator
 
 @{
-    ViewData["Title"] = "Edit";
+    ViewData["Title"] = "Редагувати глядача";
 }
 
-<h1>Edit</h1>
+<h1>Редагувати глядача</h1>
 
-<h4>Spectator</h4>
+<h4>Глядач</h4>
 <hr />
 <div class="row">
     <div class="col-md-4">
@@ -3314,7 +3477,8 @@ button.accept-policy {
             <div class="form-group">
                 <label asp-for="Phone" class="control-label"></label>
                 <input asp-for="Phone" class="form-control" />
-                <span asp-validation-for="Phone" class="text-danger"></span>
+                <small id="phone-error" class="form-text text-danger" style="display: none;">Номер телефону має бути у форматі +380XXXXXXXXX (13 символів, лише цифри після +).</small>
+                <span asp-validation-for="Phone" class="text-danger" style="display: none;"></span>
             </div>
             <div class="form-group">
                 <label asp-for="Email" class="control-label"></label>
@@ -3323,70 +3487,94 @@ button.accept-policy {
             </div>
             <input type="hidden" asp-for="Id" />
             <div class="form-group">
-                <input type="submit" value="Save" class="btn btn-primary" />
+                <input type="submit" value="Зберегти" class="btn btn-primary" />
             </div>
         </form>
     </div>
 </div>
 
 <div>
-    <a asp-action="Index">Back to List</a>
+    <a asp-action="Index">Повернутися до списку</a>
 </div>
 
 @section Scripts {
-    @{await Html.RenderPartialAsync("_ValidationScriptsPartial");}
-}
+    @{
+        await Html.RenderPartialAsync("_ValidationScriptsPartial");
+    }
+    <script>
+        // Отримуємо елементи
+        var phoneInput = document.querySelector('input[name="Phone"]');
+        var phoneError = document.getElementById('phone-error');
 
+        // Додаємо обробник події для відображення помилки
+        phoneInput.addEventListener('input', function () {
+            var phoneValue = this.value;
+            if (phoneValue && (phoneValue.length !== 13 || !phoneValue.startsWith('+') || !phoneValue.substring(1).match(/^\d+$/))) {
+                phoneError.style.display = 'block';
+            } else {
+                phoneError.style.display = 'none';
+            }
+        });
+
+        // Перевіряємо при завантаженні сторінки
+        var validationMessage = document.querySelector('span[data-valmsg-for="Phone"][data-valmsg-replace="true"]');
+        if (validationMessage && validationMessage.textContent) {
+            phoneError.style.display = 'block';
+            phoneError.textContent = validationMessage.textContent;
+            validationMessage.style.display = 'none';
+        }
+    </script>
+}
 
 // ==== Views\Spectators\Index.cshtml ====
 @model IEnumerable<ConcertSystemDomain.Model.Spectator>
 
 @{
-    ViewData["Title"] = "Index";
+    ViewData["Title"] = "Глядачі";
 }
 
-<h1>Index</h1>
+<h1>Глядачі</h1>
 
 <p>
-    <a asp-action="Create">Create New</a>
+    <a asp-action="Create" class="btn btn-primary">Додати нового</a>
 </p>
 <table class="table">
     <thead>
         <tr>
             <th>
-                @Html.DisplayNameFor(model => model.FullName)
+                ПІБ
             </th>
             <th>
-                @Html.DisplayNameFor(model => model.Phone)
+                Телефон
             </th>
             <th>
-                @Html.DisplayNameFor(model => model.Email)
+                Електронна пошта
             </th>
             <th></th>
         </tr>
     </thead>
     <tbody>
-@foreach (var item in Model) {
-        <tr>
-            <td>
-                @Html.DisplayFor(modelItem => item.FullName)
-            </td>
-            <td>
-                @Html.DisplayFor(modelItem => item.Phone)
-            </td>
-            <td>
-                @Html.DisplayFor(modelItem => item.Email)
-            </td>
-            <td>
-                <a asp-action="Edit" asp-route-id="@item.Id">Edit</a> |
-                <a asp-action="Details" asp-route-id="@item.Id">Details</a> |
-                <a asp-action="Delete" asp-route-id="@item.Id">Delete</a>
-            </td>
-        </tr>
-}
+        @foreach (var item in Model)
+        {
+            <tr>
+                <td>
+                    @Html.DisplayFor(modelItem => item.FullName)
+                </td>
+                <td>
+                    @Html.DisplayFor(modelItem => item.Phone)
+                </td>
+                <td>
+                    @Html.DisplayFor(modelItem => item.Email)
+                </td>
+                <td>
+                    <a asp-action="Edit" asp-route-id="@item.Id" class="btn btn-sm btn-secondary">Редагувати</a> |
+                    <a asp-action="Details" asp-route-id="@item.Id" class="btn btn-sm btn-info">Деталі</a> |
+                    <a asp-action="Delete" asp-route-id="@item.Id" class="btn btn-sm btn-danger">Видалити</a>
+                </td>
+            </tr>
+        }
     </tbody>
 </table>
-
 
 // ==== Views\Tickets\Create.cshtml ====
 @model ConcertSystemDomain.Model.Ticket

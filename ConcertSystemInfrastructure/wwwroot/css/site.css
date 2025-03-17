@@ -8,10 +8,27 @@
 }
 
 /* Загальні стилі */
+html, body {
+    height: 100%;
+    margin: 0;
+    padding: 0;
+}
+
 body {
     background-color: var(--background-color);
     color: var(--text-color);
     font-family: Arial, sans-serif;
+    display: flex;
+    flex-direction: column;
+    min-height: 100vh; /* Забезпечує, що body займає всю висоту вікна */
+}
+
+.wrapper {
+    flex: 1 0 auto; /* Контент займає весь доступний простір */
+}
+
+.push {
+    height: 60px; /* Висота футера, щоб контент не перекривався */
 }
 
 /* Навігаційна панель */
@@ -103,14 +120,18 @@ body {
 
 /* Футер */
 .footer {
+    flex-shrink: 0; /* Футер не стискається */
     background-color: var(--primary-color);
     color: var(--text-color);
     text-align: center;
     padding: 10px 0;
-    position: absolute;
-    bottom: 0;
+    height: 60px; /* Фіксована висота футера */
+    display: flex;
+    align-items: center;
+    justify-content: center;
     width: 100%;
 }
+
 /* Стилі для панелі фільтрації */
 .filter-panel {
     margin-bottom: 20px;
@@ -135,6 +156,7 @@ body {
         background-color: #9575CD; /* Трохи темніший фіолетовий */
         border-color: #9575CD;
     }
+
 .text-danger {
     font-size: 0.9em;
     margin-top: 5px;
