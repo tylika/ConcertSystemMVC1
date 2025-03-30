@@ -1,0 +1,105 @@
+﻿@{
+    ViewData["Title"] = "Звіти";
+}
+
+<h1>Управління звітами</h1>
+
+<!-- Відображення повідомлень -->
+@if (TempData["SuccessMessage"] != null)
+{
+    <div class="alert" role="alert">
+        @TempData["SuccessMessage"]
+    </div>
+}
+@if (TempData["ErrorMessage"] != null)
+{
+    <div class="alert alert-danger" role="alert">
+        @TempData["ErrorMessage"]
+    </div>
+}
+
+<div class="row mt-4">
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-header">Імпорт даних</div>
+            <div class="card-body">
+                <h5>З Excel</h5>
+                <form asp-action="ImportExcel" method="post" enctype="multipart/form-data">
+                    <div class="form-group">
+                        <label>Виберіть таблицю:</label>
+                        <select name="tableName" class="form-control">
+                            <option value="Concerts">Концерти</option>
+                            <option value="Artist">Виконавці</option>
+                            <option value="Purchases">Покупки</option>
+                            <option value="Spectators">Глядачі</option>
+                            <option value="Tickets">Квитки</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <input type="file" name="file" class="form-control" accept=".xlsx" />
+                    </div>
+                    <button type="submit" class="btn">Імпортувати</button>
+                </form>
+
+                <hr>
+
+                <h5>З Word</h5>
+                <form asp-action="ImportDocx" method="post" enctype="multipart/form-data">
+                    <div class="form-group">
+                        <label>Виберіть таблицю:</label>
+                        <select name="tableName" class="form-control">
+                            <option value="Concerts">Концерти</option>
+                            <option value="Artist">Виконавці</option>
+                            <option value="Purchases">Покупки</option>
+                            <option value="Spectators">Глядачі</option>
+                            <option value="Tickets">Квитки</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <input type="file" name="file" class="form-control" accept=".docx" />
+                    </div>
+                    <button type="submit" class="btn">Імпортувати</button>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-header">Експорт даних</div>
+            <div class="card-body">
+                <h5>В Excel</h5>
+                <form asp-action="ExportExcel" method="get">
+                    <div class="form-group">
+                        <label>Виберіть таблицю:</label>
+                        <select name="tableName" class="form-control">
+                            <option value="Concerts">Концерти</option>
+                            <option value="Artist">Виконавці</option>
+                            <option value="Purchases">Покупки</option>
+                            <option value="Spectators">Глядачі</option>
+                            <option value="Tickets">Квитки</option>
+                        </select>
+                    </div>
+                    <button type="submit" class="btn">Експортувати</button>
+                </form>
+
+                <hr>
+
+                <h5>В Word</h5>
+                <form asp-action="ExportDocx" method="get">
+                    <div class="form-group">
+                        <label>Виберіть таблицю:</label>
+                        <select name="tableName" class="form-control">
+                            <option value="Concerts">Концерти</option>
+                            <option value="Artist">Виконавці</option>
+                            <option value="Purchases">Покупки</option>
+                            <option value="Spectators">Глядачі</option>
+                            <option value="Tickets">Квитки</option>
+                        </select>
+                    </div>
+                    <button type="submit" class="btn">Експортувати</button>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
