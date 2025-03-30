@@ -1,7 +1,7 @@
 ﻿using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
-using ConcertSystemDomain.Model; // Для доступу до моделей
-using ConcertSystemInfrastructure; // Для доступу до контексту
+using ConcertSystemDomain.Model;
+using ConcertSystemInfrastructure;
 using System;
 using System.Linq;
 using System.Threading.Tasks;
@@ -82,9 +82,26 @@ namespace ConcertSystemInfrastructure.Controllers
             ModelState.Remove("Location");
             if (ModelState.IsValid)
             {
+                // Додаємо концерт
                 _context.Add(concert);
                 await _context.SaveChangesAsync();
 
+                // Створюємо квитки
+                for (int i = 1; i <= concert.TotalTickets; i++)
+                {
+                    var ticket = new Ticket
+                    {
+                        ConcertId = concert.Id,
+                        Row = "A",
+                        SeatNumber = i,
+                        BasePrice = 100,
+                        Status = "Available"
+                    };
+                    _context.Tickets.Add(ticket);
+                }
+                await _context.SaveChangesAsync();
+
+                // Додаємо жанри
                 if (GenreIds != null)
                 {
                     concert.Genres = await _context.Genres.Where(g => GenreIds.Contains(g.Id)).ToListAsync();
@@ -146,9 +163,61 @@ namespace ConcertSystemInfrastructure.Controllers
             {
                 try
                 {
-                    _context.Update(concert);
+                    // Отримуємо оригінальний концерт
+                    var originalConcert = await _context.Concerts
+                        .Include(c => c.Tickets)
+                        .FirstOrDefaultAsync(c => c.Id == concert.Id);
+
+                    if (originalConcert == null)
+                    {
+                        return NotFound();
+                    }
+
+                    // Оновлюємо поля концерту
+                    _context.Entry(originalConcert).CurrentValues.SetValues(concert);
+
+                    // Синхронізуємо квитки
+                    int currentTicketCount = originalConcert.Tickets.Count;
+                    if (concert.TotalTickets > currentTicketCount)
+                    {
+                        // Додаємо нові квитки
+                        for (int i = currentTicketCount + 1; i <= concert.TotalTickets; i++)
+                        {
+                            var ticket = new Ticket
+                            {
+                                ConcertId = concert.Id,
+                                Row = "A",
+                                SeatNumber = i,
+                                BasePrice = 100,
+                                Status = "Available"
+                            };
+                            _context.Tickets.Add(ticket);
+                        }
+                    }
+                    else if (concert.TotalTickets < currentTicketCount)
+                    {
+                        // Видаляємо зайві квитки (тільки ті, що не продані)
+                        var ticketsToRemove = originalConcert.Tickets
+                            .Where(t => t.Status == "Available")
+                            .OrderByDescending(t => t.SeatNumber)
+                            .Take(currentTicketCount - concert.TotalTickets)
+                            .ToList();
+
+                        foreach (var ticket in ticketsToRemove)
+                        {
+                            _context.Tickets.Remove(ticket);
+                        }
+                    }
+
+                    // Перевіряємо, чи AvailableTickets не перевищує нову кількість TotalTickets
+                    if (concert.AvailableTickets > concert.TotalTickets)
+                    {
+                        concert.AvailableTickets = concert.TotalTickets;
+                    }
+
                     await _context.SaveChangesAsync();
 
+                    // Оновлюємо жанри
                     var existingGenres = await _context.Concerts
                         .Include(c => c.Genres)
                         .FirstOrDefaultAsync(c => c.Id == concert.Id);
@@ -186,6 +255,7 @@ namespace ConcertSystemInfrastructure.Controllers
         }
 
         // GET: Concerts/Delete/5
+        // GET: Concerts/Delete/5
         public async Task<IActionResult> Delete(int? id)
         {
             if (id == null)
@@ -196,6 +266,7 @@ namespace ConcertSystemInfrastructure.Controllers
             var concert = await _context.Concerts
                 .Include(c => c.Artist)
                 .FirstOrDefaultAsync(m => m.Id == id);
+
             if (concert == null)
             {
                 return NotFound();
@@ -205,20 +276,63 @@ namespace ConcertSystemInfrastructure.Controllers
         }
 
         // POST: Concerts/Delete/5
-        [HttpPost, ActionName("Delete")]
+        [HttpPost]
         [ValidateAntiForgeryToken]
         public async Task<IActionResult> DeleteConfirmed(int id)
         {
-            var concert = await _context.Concerts.FindAsync(id);
-            if (concert != null)
+            using var transaction = await _context.Database.BeginTransactionAsync();
+            try
             {
+                // Завантажуємо концерт разом із пов'язаними сутностями
+                var concert = await _context.Concerts
+                    .Include(c => c.Tickets)
+                        .ThenInclude(t => t.PurchaseItems)
+                    .Include(c => c.Genres)
+                    .FirstOrDefaultAsync(c => c.Id == id);
+
+                if (concert == null)
+                {
+                    await transaction.RollbackAsync();
+                    return NotFound();
+                }
+
+                // Перевіряємо, чи є продані квитки
+                if (concert.Tickets.Any(t => t.Status == "Sold"))
+                {
+                    await transaction.RollbackAsync();
+                    TempData["ErrorMessage"] = "Неможливо видалити концерт, оскільки на нього вже продані квитки.";
+                    return RedirectToAction(nameof(Index));
+                }
+
+                // Видаляємо пов'язані PurchaseItems
+                foreach (var ticket in concert.Tickets)
+                {
+                    _context.PurchaseItems.RemoveRange(ticket.PurchaseItems);
+                }
+
+                // Видаляємо квитки
+                _context.Tickets.RemoveRange(concert.Tickets);
+
+                // Очищаємо зв'язок з жанрами
+                concert.Genres.Clear();
+
+                // Видаляємо сам концерт
                 _context.Concerts.Remove(concert);
+
+                // Зберігаємо зміни
+                await _context.SaveChangesAsync();
+                await transaction.CommitAsync();
+
+                TempData["SuccessMessage"] = "Концерт успішно видалено!";
+                return RedirectToAction(nameof(Index));
             }
-
-            await _context.SaveChangesAsync();
-            return RedirectToAction(nameof(Index));
+            catch (Exception ex)
+            {
+                await transaction.RollbackAsync();
+                TempData["ErrorMessage"] = $"Помилка при видаленні концерту: {ex.Message}";
+                return RedirectToAction(nameof(Index));
+            }
         }
-
         // GET: Concerts/BuyTicket/5
         public async Task<IActionResult> BuyTicket(int? id)
         {
@@ -322,7 +436,7 @@ namespace ConcertSystemInfrastructure.Controllers
                 {
                     PurchaseId = purchase.Id,
                     TicketId = ticket.Id,
-                    Quantity = 1, // Купуємо один квиток
+                    Quantity = 1,
                     Price = ticket.BasePrice
                 };
                 _context.PurchaseItems.Add(purchaseItem);
@@ -350,6 +464,7 @@ namespace ConcertSystemInfrastructure.Controllers
                 return RedirectToAction(nameof(Index));
             }
         }
+
         private bool ConcertExists(int id)
         {
             return _context.Concerts.Any(e => e.Id == id);

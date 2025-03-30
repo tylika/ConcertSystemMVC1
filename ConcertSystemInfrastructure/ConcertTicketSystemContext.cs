@@ -128,6 +128,7 @@ namespace ConcertSystemInfrastructure
                 entity.Property(e => e.Row).HasMaxLength(10).IsUnicode(false);
                 entity.Property(e => e.Status).HasMaxLength(20).IsUnicode(false).HasDefaultValue("Available");
             });
+
         }
     }
 }

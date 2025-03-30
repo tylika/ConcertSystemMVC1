@@ -8,8 +8,15 @@
 
 <h3>Ви впевнені, що хочете видалити цей концерт?</h3>
 <div>
+    <h4>Концерт</h4>
     <hr />
     <dl class="row">
+        <dt class="col-sm-2">
+            @Html.DisplayNameFor(model => model.Artist)
+        </dt>
+        <dd class="col-sm-10">
+            @Html.DisplayFor(model => model.Artist.FullName)
+        </dd>
         <dt class="col-sm-2">
             @Html.DisplayNameFor(model => model.ConcertDate)
         </dt>
@@ -34,24 +41,9 @@
         <dd class="col-sm-10">
             @Html.DisplayFor(model => model.AvailableTickets)
         </dd>
-        <dt class="col-sm-2">
-            @Html.DisplayNameFor(model => model.Artist)
-        </dt>
-        <dd class="col-sm-10">
-            @Html.DisplayFor(model => model.Artist.FullName)
-        </dd>
-        <dt class="col-sm-2">
-            Жанри
-        </dt>
-        <dd class="col-sm-10">
-            @foreach (var genre in Model.Genres)
-            {
-                <span>@genre.Name</span>
-            }
-        </dd>
     </dl>
 
-    <form asp-action="Delete">
+    <form asp-action="DeleteConfirmed" method="post">
         <input type="hidden" asp-for="Id" />
         <input type="submit" value="Видалити" class="btn btn-danger" /> |
         <a asp-action="Index">Повернутися до списку</a>

@@ -145,5 +145,27 @@ namespace ConcertSystemInfrastructure.Controllers
         {
             return _context.Spectators.Any(e => e.Id == id);
         }
+        public async Task<IActionResult> Details(int? id)
+        {
+            if (id == null)
+            {
+                return NotFound();
+            }
+
+            var spectator = await _context.Spectators
+                .Include(s => s.Purchases)
+                .ThenInclude(p => p.PurchaseItems)
+                .ThenInclude(pi => pi.Ticket)
+                .ThenInclude(t => t.Concert)
+                .ThenInclude(c => c.Artist)
+                .FirstOrDefaultAsync(m => m.Id == id);
+
+            if (spectator == null)
+            {
+                return NotFound();
+            }
+
+            return View(spectator);
+        }
     }
 }

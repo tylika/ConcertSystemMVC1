@@ -1,14 +1,15 @@
+// ==== Program.cs ====
 using ConcertSystemInfrastructure;
 using Microsoft.EntityFrameworkCore;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// Додайте цей код для підключення до бази даних
+// Додаємо контекст бази даних
 var connectionString = builder.Configuration.GetConnectionString("DefaultConnection");
 builder.Services.AddDbContext<ConcertTicketSystemContext>(options =>
     options.UseSqlServer(connectionString));
 
-// Інші сервіси
+// Додаємо контролери з видами
 builder.Services.AddControllersWithViews();
 
 var app = builder.Build();
@@ -27,8 +28,9 @@ app.UseRouting();
 
 app.UseAuthorization();
 
+// Налаштування маршруту за замовчуванням
 app.MapControllerRoute(
     name: "default",
-    pattern: "{controller=Concerts}/{action=Index}/{id?}");
+    pattern: "{controller=Home}/{action=Index}/{id?}"); // Змінено з Concerts на Home
 
 app.Run();

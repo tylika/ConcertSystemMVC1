@@ -1,3 +1,4 @@
+// ==== Controllers\HomeController.cs ====
 using ConcertSystemInfrastructure.Models;
 using Microsoft.AspNetCore.Mvc;
 using System.Diagnostics;
@@ -13,8 +14,7 @@ public class HomeController : Controller
 
     public IActionResult Index()
     {
-        // Перенаправлення на сторінку з концертами
-        return RedirectToAction("Index", "Concerts");
+        return View();
     }
 
     public IActionResult Privacy()

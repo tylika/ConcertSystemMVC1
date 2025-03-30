@@ -30,6 +30,48 @@
         </dd>
     </dl>
 </div>
+
+<h4>Куплені квитки</h4>
+<hr />
+@if (Model.Purchases.Any())
+{
+    <p>Кількість куплених квитків: @Model.Purchases.Sum(p => p.PurchaseItems.Sum(pi => pi.Quantity))</p>
+    <table class="table">
+        <thead>
+            <tr>
+                <th>Концерт</th>
+                <th>Артист</th>
+                <th>Дата</th>
+                <th>Місце</th>
+                <th>Ряд</th>
+                <th>Номер місця</th>
+                <th>Ціна</th>
+            </tr>
+        </thead>
+        <tbody>
+            @foreach (var purchase in Model.Purchases)
+            {
+                foreach (var item in purchase.PurchaseItems)
+                {
+                    <tr>
+                        <td>@item.Ticket.Concert.Location</td>
+                        <td>@item.Ticket.Concert.Artist.FullName</td>
+                        <td>@item.Ticket.Concert.ConcertDate.ToString("dd.MM.yyyy HH:mm")</td>
+                        <td>@item.Ticket.Concert.Location</td>
+                        <td>@item.Ticket.Row</td>
+                        <td>@item.Ticket.SeatNumber</td>
+                        <td>@item.Price</td>
+                    </tr>
+                }
+            }
+        </tbody>
+    </table>
+}
+else
+{
+    <p>Цей глядач ще не придбав жодного квитка.</p>
+}
+
 <div>
     <a asp-action="Edit" asp-route-id="@Model?.Id">Редагувати</a> |
     <a asp-action="Index">Повернутися до списку</a>

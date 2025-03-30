@@ -530,8 +530,8 @@ namespace ConcertSystemInfrastructure.Controllers
 // ==== Controllers\ConcertsController.cs ====
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
-using ConcertSystemDomain.Model; // Для доступу до моделей
-using ConcertSystemInfrastructure; // Для доступу до контексту
+using ConcertSystemDomain.Model;
+using ConcertSystemInfrastructure;
 using System;
 using System.Linq;
 using System.Threading.Tasks;
@@ -612,9 +612,26 @@ namespace ConcertSystemInfrastructure.Controllers
             ModelState.Remove("Location");
             if (ModelState.IsValid)
             {
+                // Додаємо концерт
                 _context.Add(concert);
                 await _context.SaveChangesAsync();
 
+                // Створюємо квитки
+                for (int i = 1; i <= concert.TotalTickets; i++)
+                {
+                    var ticket = new Ticket
+                    {
+                        ConcertId = concert.Id,
+                        Row = "A",
+                        SeatNumber = i,
+                        BasePrice = 100,
+                        Status = "Available"
+                    };
+                    _context.Tickets.Add(ticket);
+                }
+                await _context.SaveChangesAsync();
+
+                // Додаємо жанри
                 if (GenreIds != null)
                 {
                     concert.Genres = await _context.Genres.Where(g => GenreIds.Contains(g.Id)).ToListAsync();
@@ -676,9 +693,61 @@ namespace ConcertSystemInfrastructure.Controllers
             {
                 try
                 {
-                    _context.Update(concert);
+                    // Отримуємо оригінальний концерт
+                    var originalConcert = await _context.Concerts
+                        .Include(c => c.Tickets)
+                        .FirstOrDefaultAsync(c => c.Id == concert.Id);
+
+                    if (originalConcert == null)
+                    {
+                        return NotFound();
+                    }
+
+                    // Оновлюємо поля концерту
+                    _context.Entry(originalConcert).CurrentValues.SetValues(concert);
+
+                    // Синхронізуємо квитки
+                    int currentTicketCount = originalConcert.Tickets.Count;
+                    if (concert.TotalTickets > currentTicketCount)
+                    {
+                        // Додаємо нові квитки
+                        for (int i = currentTicketCount + 1; i <= concert.TotalTickets; i++)
+                        {
+                            var ticket = new Ticket
+                            {
+                                ConcertId = concert.Id,
+                                Row = "A",
+                                SeatNumber = i,
+                                BasePrice = 100,
+                                Status = "Available"
+                            };
+                            _context.Tickets.Add(ticket);
+                        }
+                    }
+                    else if (concert.TotalTickets < currentTicketCount)
+                    {
+                        // Видаляємо зайві квитки (тільки ті, що не продані)
+                        var ticketsToRemove = originalConcert.Tickets
+                            .Where(t => t.Status == "Available")
+                            .OrderByDescending(t => t.SeatNumber)
+                            .Take(currentTicketCount - concert.TotalTickets)
+                            .ToList();
+
+                        foreach (var ticket in ticketsToRemove)
+                        {
+                            _context.Tickets.Remove(ticket);
+                        }
+                    }
+
+                    // Перевіряємо, чи AvailableTickets не перевищує нову кількість TotalTickets
+                    if (concert.AvailableTickets > concert.TotalTickets)
+                    {
+                        concert.AvailableTickets = concert.TotalTickets;
+                    }
+
                     await _context.SaveChangesAsync();
 
+                    // Оновлюємо жанри
                     var existingGenres = await _context.Concerts
                         .Include(c => c.Genres)
                         .FirstOrDefaultAsync(c => c.Id == concert.Id);
@@ -716,37 +785,91 @@ namespace ConcertSystemInfrastructure.Controllers
         }
 
         // GET: Concerts/Delete/5
-        public async Task<IActionResult> Delete(int? id)
+        [HttpPost]
+        [ValidateAntiForgeryToken]
+        public async Task<IActionResult> Delete(int id)
         {
-            if (id == null)
+            using var transaction = await _context.Database.BeginTransactionAsync();
+            try
             {
-                return NotFound();
-            }
+                // Завантажуємо концерт разом із усіма пов'язаними даними
+                var concert = await _context.Concerts
+                    .Include(c => c.Tickets)
+                        .ThenInclude(t => t.PurchaseItems) // Додаємо завантаження PurchaseItems
+                    .FirstOrDefaultAsync(c => c.Id == id);
 
-            var concert = await _context.Concerts
-                .Include(c => c.Artist)
-                .FirstOrDefaultAsync(m => m.Id == id);
-            if (concert == null)
+                if (concert == null)
+                {
+                    return NotFound();
+                }
+
+                // Видаляємо всі пов'язані PurchaseItems
+                foreach (var ticket in concert.Tickets)
+                {
+                    _context.PurchaseItems.RemoveRange(ticket.PurchaseItems);
+                }
+
+                // Видаляємо всі пов'язані Tickets
+                _context.Tickets.RemoveRange(concert.Tickets);
+
+                // Видаляємо сам концерт
+                _context.Concerts.Remove(concert);
+
+                await _context.SaveChangesAsync();
+                await transaction.CommitAsync();
+
+                TempData["SuccessMessage"] = "Концерт успішно видалено!";
+                return RedirectToAction(nameof(Index));
+            }
+            catch (Exception ex)
             {
-                return NotFound();
+                await transaction.RollbackAsync();
+                TempData["ErrorMessage"] = $"Помилка при видаленні концерту: {ex.Message}";
+                return RedirectToAction(nameof(Index));
             }
-
-            return View(concert);
         }
-
         // POST: Concerts/Delete/5
         [HttpPost, ActionName("Delete")]
         [ValidateAntiForgeryToken]
         public async Task<IActionResult> DeleteConfirmed(int id)
         {
-            var concert = await _context.Concerts.FindAsync(id);
-            if (concert != null)
+            using var transaction = await _context.Database.BeginTransactionAsync();
+            try
             {
-                _context.Concerts.Remove(concert);
-            }
+                var concert = await _context.Concerts
+                    .Include(c => c.Tickets)
+                    .ThenInclude(t => t.PurchaseItems)
+                    .FirstOrDefaultAsync(c => c.Id == id);
 
-            await _context.SaveChangesAsync();
-            return RedirectToAction(nameof(Index));
+                if (concert == null)
+                {
+                    return NotFound();
+                }
+
+                // Видаляємо всі пов'язані PurchaseItems
+                foreach (var ticket in concert.Tickets)
+                {
+                    _context.PurchaseItems.RemoveRange(ticket.PurchaseItems);
+                }
+
+                // Видаляємо всі пов'язані Tickets
+                _context.Tickets.RemoveRange(concert.Tickets);
+
+                // Видаляємо сам концерт
+                _context.Concerts.Remove(concert);
+
+                await _context.SaveChangesAsync();
+                await transaction.CommitAsync();
+
+                TempData["SuccessMessage"] = "Концерт успішно видалено!";
+                return RedirectToAction(nameof(Index));
+            }
+            catch (Exception ex)
+            {
+                await transaction.RollbackAsync();
+                TempData["ErrorMessage"] = $"Помилка при видаленні концерту: {ex.Message}";
+                return RedirectToAction(nameof(Index));
+            }
         }
 
         // GET: Concerts/BuyTicket/5
@@ -852,7 +975,7 @@ namespace ConcertSystemInfrastructure.Controllers
                 {
                     PurchaseId = purchase.Id,
                     TicketId = ticket.Id,
-                    Quantity = 1, // Купуємо один квиток
+                    Quantity = 1,
                     Price = ticket.BasePrice
                 };
                 _context.PurchaseItems.Add(purchaseItem);
@@ -880,6 +1003,7 @@ namespace ConcertSystemInfrastructure.Controllers
                 return RedirectToAction(nameof(Index));
             }
         }
+
         private bool ConcertExists(int id)
         {
             return _context.Concerts.Any(e => e.Id == id);
@@ -1754,6 +1878,28 @@ namespace ConcertSystemInfrastructure.Controllers
         {
             return _context.Spectators.Any(e => e.Id == id);
         }
+        public async Task<IActionResult> Details(int? id)
+        {
+            if (id == null)
+            {
+                return NotFound();
+            }
+
+            var spectator = await _context.Spectators
+                .Include(s => s.Purchases)
+                .ThenInclude(p => p.PurchaseItems)
+                .ThenInclude(pi => pi.Ticket)
+                .ThenInclude(t => t.Concert)
+                .ThenInclude(c => c.Artist)
+                .FirstOrDefaultAsync(m => m.Id == id);
+
+            if (spectator == null)
+            {
+                return NotFound();
+            }
+
+            return View(spectator);
+        }
     }
 }
 
@@ -2382,6 +2528,20 @@ namespace ConcertSystemInfrastructure.Models
         </dd>
     </dl>
 
+    @if (ViewData["HasTickets"] as bool? == true)
+    {
+        <div class="alert alert-warning">
+            <strong>Увага!</strong> Цей концерт має пов'язані квитки. Вони будуть видалені разом із концертом.
+        </div>
+    }
+
+    @if (ViewData["HasPurchases"] as bool? == true)
+    {
+        <div class="alert alert-danger">
+            <strong>Увага!</strong> Цей концерт має пов'язані покупки. Вони будуть видалені разом із концертом.
+        </div>
+    }
+
     <form asp-action="Delete">
         <input type="hidden" asp-for="Id" />
         <input type="submit" value="Видалити" class="btn btn-danger" /> |
@@ -2667,6 +2827,7 @@ else
                         width: 600,
                         height: 400,
                         legend: { position: 'none' }
+
                     };
 
                     const chart = new google.visualization.ColumnChart(document.getElementById('ticketsByGenreChart'));
@@ -3759,6 +3920,48 @@ button.accept-policy {
         </dd>
     </dl>
 </div>
+
+<h4>Куплені квитки</h4>
+<hr />
+@if (Model.Purchases.Any())
+{
+    <p>Кількість куплених квитків: @Model.Purchases.Sum(p => p.PurchaseItems.Sum(pi => pi.Quantity))</p>
+    <table class="table">
+        <thead>
+            <tr>
+                <th>Концерт</th>
+                <th>Артист</th>
+                <th>Дата</th>
+                <th>Місце</th>
+                <th>Ряд</th>
+                <th>Номер місця</th>
+                <th>Ціна</th>
+            </tr>
+        </thead>
+        <tbody>
+            @foreach (var purchase in Model.Purchases)
+            {
+                foreach (var item in purchase.PurchaseItems)
+                {
+                    <tr>
+                        <td>@item.Ticket.Concert.Location</td>
+                        <td>@item.Ticket.Concert.Artist.FullName</td>
+                        <td>@item.Ticket.Concert.ConcertDate.ToString("dd.MM.yyyy HH:mm")</td>
+                        <td>@item.Ticket.Concert.Location</td>
+                        <td>@item.Ticket.Row</td>
+                        <td>@item.Ticket.SeatNumber</td>
+                        <td>@item.Price</td>
+                    </tr>
+                }
+            }
+        </tbody>
+    </table>
+}
+else
+{
+    <p>Цей глядач ще не придбав жодного квитка.</p>
+}
+
 <div>
     <a asp-action="Edit" asp-route-id="@Model?.Id">Редагувати</a> |
     <a asp-action="Index">Повернутися до списку</a>
@@ -4158,5 +4361,178 @@ button.accept-policy {
 }
     </tbody>
 </table>
+
+
+// ==== wwwroot\css\site.css ====
+/* ������� ������� */
+:root {
+    --primary-color: #C3B1E1; /* ���������-���������� */
+    --secondary-color: #E6E6FA; /* ���������� */
+    --background-color: #FAF9F6; /* ���� ������ ��� */
+    --text-color: #4A4A4A; /* �'���� ������ ����� */
+    --hover-color: #A89CC8; /* ����� �������� ���������� ���������� ��� ������ */
+}
+
+/* �������� ���� */
+html, body {
+    height: 100%;
+    margin: 0;
+    padding: 0;
+}
+
+body {
+    background-color: var(--background-color);
+    color: var(--text-color);
+    font-family: Arial, sans-serif;
+    display: flex;
+    flex-direction: column;
+    min-height: 100vh; /* ���������, �� body ����� ��� ������ ���� */
+}
+
+.wrapper {
+    flex: 1 0 auto; /* ������� ����� ���� ��������� ������ */
+}
+
+.push {
+    height: 60px; /* ������ ������, ��� ������� �� ������������ */
+}
+
+/* ���������� ������ */
+.navbar {
+    background-color: var(--primary-color) !important;
+}
+
+.navbar-brand, .nav-link {
+    color: var(--text-color) !important;
+}
+
+    .nav-link:hover {
+        color: var(--hover-color) !important;
+    }
+
+/* ������ */
+.btn-primary {
+    background-color: var(--primary-color);
+    border-color: var(--primary-color);
+    color: var(--text-color);
+}
+
+    .btn-primary:hover {
+        background-color: var(--hover-color);
+        border-color: var(--hover-color);
+    }
+
+.btn-secondary {
+    background-color: var(--secondary-color);
+    border-color: var(--secondary-color);
+    color: var(--text-color);
+}
+
+    .btn-secondary:hover {
+        background-color: var(--hover-color);
+        border-color: var(--hover-color);
+    }
+
+.btn-info {
+    background-color: #C3B1E1; /* ���������-���������� */
+    border-color: #C3B1E1;
+    color: var(--text-color);
+}
+
+    .btn-info:hover {
+        background-color: #A89CC8; /* ����� �������� ���������� ���������� */
+        border-color: #A89CC8;
+    }
+
+.btn-danger {
+    background-color: #FFB6C1; /* ���������-������� ��� ��������� */
+    border-color: #FFB6C1;
+    color: var(--text-color);
+}
+
+    .btn-danger:hover {
+        background-color: #FFA07A; /* ����� �������� ���������-������� */
+        border-color: #FFA07A;
+    }
+
+/* ������� */
+.table {
+    width: 100%;
+    margin-bottom: 1rem;
+    background-color: white;
+    border-collapse: separate;
+    border-spacing: 0;
+    border-radius: 10px;
+    overflow: hidden;
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+}
+
+    .table th,
+    .table td {
+        padding: 12px;
+        text-align: left;
+        border-bottom: 1px solid #ddd;
+    }
+
+    .table th {
+        background-color: var(--primary-color);
+        color: var(--text-color);
+        font-weight: bold;
+    }
+
+    .table tbody tr:hover {
+        background-color: rgba(195, 177, 225, 0.1); /* ���������-���������� � ��������� */
+    }
+
+/* ����� */
+.footer {
+    flex-shrink: 0; /* ����� �� ���������� */
+    background-color: var(--primary-color);
+    color: var(--text-color);
+    text-align: center;
+    padding: 10px 0;
+    height: 60px; /* Գ������� ������ ������ */
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+}
+
+/* ���� ��� ����� ���������� */
+.filter-panel {
+    margin-bottom: 20px;
+}
+
+.filter-panel-content {
+    background-color: #f8f9fa;
+    padding: 20px;
+    border-radius: 10px;
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+    margin-bottom: 20px;
+}
+
+/* ���� ��� ������ */
+.btn-primary {
+    background-color: #B39DDB; /* ���������-���������� */
+    border-color: #B39DDB;
+    color: white;
+}
+
+    .btn-primary:hover {
+        background-color: #9575CD; /* ����� �������� ���������� */
+        border-color: #9575CD;
+    }
+
+.text-danger {
+    font-size: 0.9em;
+    margin-top: 5px;
+}
+
+
+// ==== wwwroot\js\site.js ====
+// Please see documentation at https://learn.microsoft.com/aspnet/core/client-side/bundling-and-minification
+// for details on configuring this project to bundle and minify static web assets.
+
+// Write your JavaScript code.
 
 

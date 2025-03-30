@@ -25,7 +25,6 @@ namespace ConcertSystemInfrastructure.Controllers
 
             return View(await _context.Artists.ToListAsync());
         }
-
         // GET: Artists/Details/5
         public async Task<IActionResult> Details(int? id)
         {
@@ -144,6 +143,7 @@ namespace ConcertSystemInfrastructure.Controllers
             }
 
             var artist = await _context.Artists
+                .Include(a => a.Concerts)
                 .FirstOrDefaultAsync(m => m.Id == id);
             if (artist == null)
             {
@@ -152,22 +152,72 @@ namespace ConcertSystemInfrastructure.Controllers
 
             return View(artist);
         }
-
         // POST: Artists/Delete/5
         [HttpPost, ActionName("Delete")]
         [ValidateAntiForgeryToken]
         public async Task<IActionResult> DeleteConfirmed(int id)
         {
-            var artist = await _context.Artists.FindAsync(id);
-            if (artist != null)
+            using var transaction = await _context.Database.BeginTransactionAsync();
+            try
             {
+                // Завантажуємо артиста з пов'язаними концертами і квитками
+                var artist = await _context.Artists
+                    .Include(a => a.Concerts)
+                        .ThenInclude(c => c.Tickets)
+                            .ThenInclude(t => t.PurchaseItems)
+                    .Include(a => a.Concerts)
+                        .ThenInclude(c => c.Genres)
+                    .FirstOrDefaultAsync(a => a.Id == id);
+
+                if (artist == null)
+                {
+                    await transaction.RollbackAsync();
+                    return NotFound();
+                }
+
+                // Перевіряємо, чи є продані квитки
+                bool hasSoldTickets = artist.Concerts
+                    .Any(c => c.Tickets.Any(t => t.Status == "Sold"));
+
+                if (hasSoldTickets)
+                {
+                    await transaction.RollbackAsync();
+                    TempData["ErrorMessage"] = "Неможливо видалити артиста, оскільки на його концерти вже продані квитки.";
+                    return RedirectToAction(nameof(Index));
+                }
+
+                // Видаляємо пов'язані концерти
+                foreach (var concert in artist.Concerts)
+                {
+                    // Видаляємо PurchaseItems
+                    foreach (var ticket in concert.Tickets)
+                    {
+                        _context.PurchaseItems.RemoveRange(ticket.PurchaseItems);
+                    }
+                    // Видаляємо квитки
+                    _context.Tickets.RemoveRange(concert.Tickets);
+                    // Очищаємо жанри
+                    concert.Genres.Clear();
+                    // Видаляємо концерт
+                    _context.Concerts.Remove(concert);
+                }
+
+                // Видаляємо артиста
                 _context.Artists.Remove(artist);
+
+                await _context.SaveChangesAsync();
+                await transaction.CommitAsync();
+
+                TempData["SuccessMessage"] = "Артиста та його концерти успішно видалено!";
+                return RedirectToAction(nameof(Index));
             }
-
-            await _context.SaveChangesAsync();
-            return RedirectToAction(nameof(Index));
+            catch (Exception ex)
+            {
+                await transaction.RollbackAsync();
+                TempData["ErrorMessage"] = $"Помилка при видаленні артиста: {ex.Message}";
+                return RedirectToAction(nameof(Index));
+            }
         }
-
         private bool ArtistExists(int id)
         {
             return _context.Artists.Any(e => e.Id == id);

@@ -1,1 +1,92 @@
 ﻿
+@{
+    ViewData["Title"] = "Головна";
+}
+
+<h1>Статистика концертів</h1>
+
+<!-- Повідомлення -->
+@if (TempData["SuccessMessage"] != null)
+{
+    <div class="alert alert-success" role="alert">
+        @TempData["SuccessMessage"]
+    </div>
+}
+@if (TempData["ErrorMessage"] != null)
+{
+    <div class="alert alert-danger" role="alert">
+        @TempData["ErrorMessage"]
+    </div>
+}
+
+<!-- Діаграми -->
+<div class="row">
+    <div class="col-md-6">
+        <div id="concertsByYearChart"></div>
+    </div>
+    <div class="col-md-6">
+        <div id="ticketsByGenreChart"></div>
+    </div>
+</div>
+
+@section Scripts {
+    <script type="text/javascript" src="https://www.gstatic.com/charts/loader.js"></script>
+    <script type="text/javascript">
+        google.charts.load('current', { 'packages': ['corechart'] });
+        google.charts.setOnLoadCallback(drawCharts);
+
+        function drawCharts() {
+            // Діаграма 1: Кількість концертів за роками
+            fetch('/api/charts/concertsByYear')
+                .then(response => response.json())
+                .then(data => {
+                    const dataTable = new google.visualization.DataTable();
+                    dataTable.addColumn('string', 'Рік');
+                    dataTable.addColumn('number', 'Кількість концертів');
+
+                    data.forEach(item => {
+                        dataTable.addRow([item.year, item.count]);
+                    });
+
+                    const options = {
+                        title: 'Концерти за роками',
+                        width: 500,
+                        height: 400,
+                        legend: { position: 'none' },
+                        backgroundColor: '#FAF9F6',
+                        colors: ['#8A2BE2'] 
+                    };
+
+                    const chart = new google.visualization.ColumnChart(document.getElementById('concertsByYearChart'));
+                    chart.draw(dataTable, options);
+                })
+                .catch(error => console.error('Помилка завантаження даних для діаграми концертів за роками:', error));
+
+            // Діаграма 2: Кількість проданих квитків за жанрами
+            fetch('/api/charts/ticketsByGenre')
+                .then(response => response.json())
+                .then(data => {
+                    const dataTable = new google.visualization.DataTable();
+                    dataTable.addColumn('string', 'Жанр');
+                    dataTable.addColumn('number', 'Кількість проданих квитків');
+
+                    data.forEach(item => {
+                        dataTable.addRow([item.genre, item.count]);
+                    });
+
+                    const options = {
+                        title: 'Продані квитки за жанрами',
+                        width: 500,
+                        height: 400,
+                        legend: { position: 'none' },
+                        backgroundColor: '#FAF9F6',
+                        colors: ['#8A2BE2'] 
+                    };
+
+                    const chart = new google.visualization.ColumnChart(document.getElementById('ticketsByGenreChart'));
+                    chart.draw(dataTable, options);
+                })
+                .catch(error => console.error('Помилка завантаження даних для діаграми квитків за жанрами:', error));
+        }
+    </script>
+}

@@ -1,4 +1,5 @@
-﻿@model IEnumerable<ConcertSystemDomain.Model.Concert>
+﻿
+@model IEnumerable<ConcertSystemDomain.Model.Concert>
 
 @{
     ViewData["Title"] = "Події";
@@ -6,7 +7,7 @@
 
 <h1>Події</h1>
 
-<!-- Відображення повідомлень -->
+<!-- Повідомлення -->
 @if (TempData["SuccessMessage"] != null)
 {
     <div class="alert alert-success" role="alert">
@@ -21,122 +22,36 @@
 }
 
 <p>
-    <a asp-action="Create" class="btn btn-primary">Додати подію</a>
+    <a asp-action="Create" class="btn btn-primary">Додати новий концерт</a>
 </p>
 
-<!-- Діаграми -->
-<div class="row">
-    <div class="col-md-6">
-        <h3>Кількість концертів за роками</h3>
-        <div id="concertsByYearChart"></div>
-    </div>
-    <div class="col-md-6">
-        <h3>Кількість проданих квитків за жанрами</h3>
-        <div id="ticketsByGenreChart"></div>
-    </div>
-</div>
-
-<!-- Перевірка, чи є події -->
-@if (Model.Any())
-{
-    <!-- Таблиця подій -->
-    <table class="table">
-        <thead>
+<table class="table">
+    <thead>
+        <tr>
+            <th>Артист</th>
+            <th>Дата концерту</th>
+            <th>Місто</th>
+            <th>Всього квитків</th>
+            <th>Доступно квитків</th>
+            <th>Дії</th>
+        </tr>
+    </thead>
+    <tbody>
+        @foreach (var item in Model)
+        {
             <tr>
-                <th>Дата події</th>
-                <th>Місто проведення</th>
-                <th>Загальна кількість квитків</th>
-                <th>Доступні квитки</th>
-                <th>Артист</th>
-                <th>Жанри</th>
-                <th>Дії</th>
+                <td>@Html.DisplayFor(modelItem => item.Artist.FullName)</td>
+                <td>@Html.DisplayFor(modelItem => item.ConcertDate)</td>
+                <td>@Html.DisplayFor(modelItem => item.Location)</td>
+                <td>@Html.DisplayFor(modelItem => item.TotalTickets)</td>
+                <td>@Html.DisplayFor(modelItem => item.AvailableTickets)</td>
+                <td>
+                    <a asp-action="Edit" asp-route-id="@item.Id" class="btn btn-sm btn-secondary">Редагувати</a>
+                    <a asp-action="Details" asp-route-id="@item.Id" class="btn btn-sm btn-info">Деталі</a>
+                    <a asp-action="Delete" asp-route-id="@item.Id" class="btn btn-sm btn-danger">Видалити</a>
+                    <a asp-action="BuyTicket" asp-route-id="@item.Id" class="btn btn-sm btn-primary">Купити квиток</a>
+                </td>
             </tr>
-        </thead>
-        <tbody>
-            @foreach (var item in Model)
-            {
-                <tr>
-                    <td>@Html.DisplayFor(modelItem => item.ConcertDate)</td>
-                    <td>@Html.DisplayFor(modelItem => item.Location)</td>
-                    <td>@Html.DisplayFor(modelItem => item.TotalTickets)</td>
-                    <td>@Html.DisplayFor(modelItem => item.AvailableTickets)</td>
-                    <td>@Html.DisplayFor(modelItem => item.Artist.FullName)</td>
-                    <td>
-                        @foreach (var genre in item.Genres)
-                        {
-                            <span>@genre.Name</span>
-                        }
-                    </td>
-                    <td>
-                        <a asp-action="Edit" asp-route-id="@item.Id" class="btn btn-sm btn-secondary">Редагувати</a>
-                        <a asp-action="Delete" asp-route-id="@item.Id" class="btn btn-sm btn-danger">Видалити</a>
-                        <a asp-action="BuyTicket" asp-route-id="@item.Id" class="btn btn-sm btn-success">Купити квиток</a>
-                    </td>
-                </tr>
-            }
-        </tbody>
-    </table>
-}
-else
-{
-    <div class="alert alert-info" role="alert">
-        Вибачте, схожих подій немає, оберіть інші фільтри.
-    </div>
-}
-
-@section Scripts {
-    <script type="text/javascript" src="https://www.gstatic.com/charts/loader.js"></script>
-    <script type="text/javascript">
-        google.charts.load('current', { 'packages': ['corechart'] });
-        google.charts.setOnLoadCallback(drawCharts);
-
-        function drawCharts() {
-            // Діаграма 1: Кількість концертів за роками
-            fetch('/api/charts/concertsByYear')
-                .then(response => response.json())
-                .then(data => {
-                    const dataTable = new google.visualization.DataTable();
-                    dataTable.addColumn('string', 'Рік');
-                    dataTable.addColumn('number', 'Кількість концертів');
-
-                    data.forEach(item => {
-                        dataTable.addRow([item.year, item.count]);
-                    });
-
-                    const options = {
-                        title: 'Концерти за роками',
-                        width: 600,
-                        height: 400,
-                        legend: { position: 'none' }
-                    };
-
-                    const chart = new google.visualization.ColumnChart(document.getElementById('concertsByYearChart'));
-                    chart.draw(dataTable, options);
-                });
-
-            // Діаграма 2: Кількість проданих квитків за жанрами
-            fetch('/api/charts/ticketsByGenre')
-                .then(response => response.json())
-                .then(data => {
-                    const dataTable = new google.visualization.DataTable();
-                    dataTable.addColumn('string', 'Жанр');
-                    dataTable.addColumn('number', 'Кількість проданих квитків');
-
-                    data.forEach(item => {
-                        dataTable.addRow([item.genre, item.count]);
-                    });
-
-                    const options = {
-                        title: 'Продані квитки за жанрами',
-                        width: 600,
-                        height: 400,
-                        legend: { position: 'none' }
-
-                    };
-
-                    const chart = new google.visualization.ColumnChart(document.getElementById('ticketsByGenreChart'));
-                    chart.draw(dataTable, options);
-                });
         }
-    </script>
-}
+    </tbody>
+</table>
