@@ -253,8 +253,26 @@ namespace ConcertSystemInfrastructure.Controllers
             ViewBag.GenreIds = new SelectList(await _context.Genres.Select(g => new { g.Id, g.Name }).ToListAsync(), "Id", "Name");
             return View(concert);
         }
+        public async Task<IActionResult> Details(int? id)
+        {
+            if (id == null)
+            {
+                return NotFound();
+            }
 
-        // GET: Concerts/Delete/5
+            var concert = await _context.Concerts
+                .Include(c => c.Artist) // Включаємо дані артиста
+                .Include(c => c.Genres) // Включаємо жанри концерту
+                .Include(c => c.Tickets) // Включаємо квитки (опціонально)
+                .FirstOrDefaultAsync(m => m.Id == id);
+
+            if (concert == null)
+            {
+                return NotFound();
+            }
+
+            return View(concert);
+        }
         // GET: Concerts/Delete/5
         public async Task<IActionResult> Delete(int? id)
         {

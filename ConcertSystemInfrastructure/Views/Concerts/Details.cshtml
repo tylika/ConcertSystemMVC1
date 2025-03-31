@@ -1,48 +1,63 @@
 ﻿@model ConcertSystemDomain.Model.Concert
 
 @{
-    ViewData["Title"] = "Details";
+    ViewData["Title"] = "Деталі концерту";
 }
 
-<h1>Details</h1>
+<h1>Деталі концерту</h1>
 
 <div>
-    <h4>Concert</h4>
+    <h4>Концерт</h4>
     <hr />
     <dl class="row">
-        <dt class = "col-sm-2">
-            @Html.DisplayNameFor(model => model.ConcertDate)
+        <dt class="col-sm-2">
+            Артист
         </dt>
-        <dd class = "col-sm-10">
+        <dd class="col-sm-10">
+            @Html.DisplayFor(model => model.Artist.FullName)
+        </dd>
+        <dt class="col-sm-2">
+            Дата концерту
+        </dt>
+        <dd class="col-sm-10">
             @Html.DisplayFor(model => model.ConcertDate)
         </dd>
-        <dt class = "col-sm-2">
-            @Html.DisplayNameFor(model => model.Location)
+        <dt class="col-sm-2">
+            Місто проведення
         </dt>
-        <dd class = "col-sm-10">
+        <dd class="col-sm-10">
             @Html.DisplayFor(model => model.Location)
         </dd>
-        <dt class = "col-sm-2">
-            @Html.DisplayNameFor(model => model.TotalTickets)
+        <dt class="col-sm-2">
+            Загальна кількість квитків
         </dt>
-        <dd class = "col-sm-10">
+        <dd class="col-sm-10">
             @Html.DisplayFor(model => model.TotalTickets)
         </dd>
-        <dt class = "col-sm-2">
-            @Html.DisplayNameFor(model => model.AvailableTickets)
+        <dt class="col-sm-2">
+            Доступні квитки
         </dt>
-        <dd class = "col-sm-10">
+        <dd class="col-sm-10">
             @Html.DisplayFor(model => model.AvailableTickets)
         </dd>
-        <dt class = "col-sm-2">
-            @Html.DisplayNameFor(model => model.Artist)
+        <dt class="col-sm-2">
+            Жанри
         </dt>
-        <dd class = "col-sm-10">
-            @Html.DisplayFor(model => model.Artist.FullName)
+        <dd class="col-sm-10">
+            @if (Model.Genres.Any())
+            {
+                @string.Join(", ", Model.Genres.Select(g => g.Name))
+            }
+            else
+            {
+                <span>Жанри не вказані</span>
+            }
         </dd>
     </dl>
 </div>
+
 <div>
-    <a asp-action="Edit" asp-route-id="@Model?.Id">Edit</a> |
-    <a asp-action="Index">Back to List</a>
+    <a asp-action="Edit" asp-route-id="@Model?.Id" class="btn btn-secondary">Редагувати</a> |
+    <a asp-action="BuyTicket" asp-route-id="@Model?.Id" class="btn btn-primary">Купити квиток</a> |
+    <a asp-action="Index" class="btn btn-info">Повернутися до списку</a>
 </div>

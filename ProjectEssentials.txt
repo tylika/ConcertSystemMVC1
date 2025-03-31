@@ -263,17 +263,18 @@ public partial class Ticket : Entity
 }
 
 // ==== Program.cs ====
+// ==== Program.cs ====
 using ConcertSystemInfrastructure;
 using Microsoft.EntityFrameworkCore;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// ������� ��� ��� ��� ���������� �� ���� �����
+// ������ �������� ���� �����
 var connectionString = builder.Configuration.GetConnectionString("DefaultConnection");
 builder.Services.AddDbContext<ConcertTicketSystemContext>(options =>
     options.UseSqlServer(connectionString));
 
-// ���� ������
+// ������ ���������� � ������
 builder.Services.AddControllersWithViews();
 
 var app = builder.Build();
@@ -292,9 +293,10 @@ app.UseRouting();
 
 app.UseAuthorization();
 
+// ������������ �������� �� �������������
 app.MapControllerRoute(
     name: "default",
-    pattern: "{controller=Concerts}/{action=Index}/{id?}");
+    pattern: "{controller=Home}/{action=Index}/{id?}"); // ������ � Concerts �� Home
 
 app.Run();
 
@@ -326,7 +328,6 @@ namespace ConcertSystemInfrastructure.Controllers
 
             return View(await _context.Artists.ToListAsync());
         }
-
         // GET: Artists/Details/5
         public async Task<IActionResult> Details(int? id)
         {
@@ -445,6 +446,7 @@ namespace ConcertSystemInfrastructure.Controllers
             }
 
             var artist = await _context.Artists
+                .Include(a => a.Concerts)
                 .FirstOrDefaultAsync(m => m.Id == id);
             if (artist == null)
             {
@@ -453,22 +455,72 @@ namespace ConcertSystemInfrastructure.Controllers
 
             return View(artist);
         }
-
         // POST: Artists/Delete/5
         [HttpPost, ActionName("Delete")]
         [ValidateAntiForgeryToken]
         public async Task<IActionResult> DeleteConfirmed(int id)
         {
-            var artist = await _context.Artists.FindAsync(id);
-            if (artist != null)
+            using var transaction = await _context.Database.BeginTransactionAsync();
+            try
             {
+                // Завантажуємо артиста з пов'язаними концертами і квитками
+                var artist = await _context.Artists
+                    .Include(a => a.Concerts)
+                        .ThenInclude(c => c.Tickets)
+                            .ThenInclude(t => t.PurchaseItems)
+                    .Include(a => a.Concerts)
+                        .ThenInclude(c => c.Genres)
+                    .FirstOrDefaultAsync(a => a.Id == id);
+
+                if (artist == null)
+                {
+                    await transaction.RollbackAsync();
+                    return NotFound();
+                }
+
+                // Перевіряємо, чи є продані квитки
+                bool hasSoldTickets = artist.Concerts
+                    .Any(c => c.Tickets.Any(t => t.Status == "Sold"));
+
+                if (hasSoldTickets)
+                {
+                    await transaction.RollbackAsync();
+                    TempData["ErrorMessage"] = "Неможливо видалити артиста, оскільки на його концерти вже продані квитки.";
+                    return RedirectToAction(nameof(Index));
+                }
+
+                // Видаляємо пов'язані концерти
+                foreach (var concert in artist.Concerts)
+                {
+                    // Видаляємо PurchaseItems
+                    foreach (var ticket in concert.Tickets)
+                    {
+                        _context.PurchaseItems.RemoveRange(ticket.PurchaseItems);
+                    }
+                    // Видаляємо квитки
+                    _context.Tickets.RemoveRange(concert.Tickets);
+                    // Очищаємо жанри
+                    concert.Genres.Clear();
+                    // Видаляємо концерт
+                    _context.Concerts.Remove(concert);
+                }
+
+                // Видаляємо артиста
                 _context.Artists.Remove(artist);
+
+                await _context.SaveChangesAsync();
+                await transaction.CommitAsync();
+
+                TempData["SuccessMessage"] = "Артиста та його концерти успішно видалено!";
+                return RedirectToAction(nameof(Index));
             }
-
-            await _context.SaveChangesAsync();
-            return RedirectToAction(nameof(Index));
+            catch (Exception ex)
+            {
+                await transaction.RollbackAsync();
+                TempData["ErrorMessage"] = $"Помилка при видаленні артиста: {ex.Message}";
+                return RedirectToAction(nameof(Index));
+            }
         }
-
         private bool ArtistExists(int id)
         {
             return _context.Artists.Any(e => e.Id == id);
@@ -785,79 +837,71 @@ namespace ConcertSystemInfrastructure.Controllers
         }
 
         // GET: Concerts/Delete/5
-        [HttpPost]
-        [ValidateAntiForgeryToken]
-        public async Task<IActionResult> Delete(int id)
+        // GET: Concerts/Delete/5
+        public async Task<IActionResult> Delete(int? id)
         {
-            using var transaction = await _context.Database.BeginTransactionAsync();
-            try
+            if (id == null)
             {
-                // Завантажуємо концерт разом із усіма пов'язаними даними
-                var concert = await _context.Concerts
-                    .Include(c => c.Tickets)
-                        .ThenInclude(t => t.PurchaseItems) // Додаємо завантаження PurchaseItems
-                    .FirstOrDefaultAsync(c => c.Id == id);
-
-                if (concert == null)
-                {
-                    return NotFound();
-                }
-
-                // Видаляємо всі пов'язані PurchaseItems
-                foreach (var ticket in concert.Tickets)
-                {
-                    _context.PurchaseItems.RemoveRange(ticket.PurchaseItems);
-                }
-
-                // Видаляємо всі пов'язані Tickets
-                _context.Tickets.RemoveRange(concert.Tickets);
-
-                // Видаляємо сам концерт
-                _context.Concerts.Remove(concert);
-
-                await _context.SaveChangesAsync();
-                await transaction.CommitAsync();
-
-                TempData["SuccessMessage"] = "Концерт успішно видалено!";
-                return RedirectToAction(nameof(Index));
+                return NotFound();
             }
-            catch (Exception ex)
+
+            var concert = await _context.Concerts
+                .Include(c => c.Artist)
+                .FirstOrDefaultAsync(m => m.Id == id);
+
+            if (concert == null)
             {
-                await transaction.RollbackAsync();
-                TempData["ErrorMessage"] = $"Помилка при видаленні концерту: {ex.Message}";
-                return RedirectToAction(nameof(Index));
+                return NotFound();
             }
+
+            return View(concert);
         }
+
         // POST: Concerts/Delete/5
-        [HttpPost, ActionName("Delete")]
+        [HttpPost]
         [ValidateAntiForgeryToken]
         public async Task<IActionResult> DeleteConfirmed(int id)
         {
             using var transaction = await _context.Database.BeginTransactionAsync();
             try
             {
+                // Завантажуємо концерт разом із пов'язаними сутностями
                 var concert = await _context.Concerts
                     .Include(c => c.Tickets)
-                    .ThenInclude(t => t.PurchaseItems)
+                        .ThenInclude(t => t.PurchaseItems)
+                    .Include(c => c.Genres)
                     .FirstOrDefaultAsync(c => c.Id == id);
 
                 if (concert == null)
                 {
+                    await transaction.RollbackAsync();
                     return NotFound();
                 }
 
-                // Видаляємо всі пов'язані PurchaseItems
+                // Перевіряємо, чи є продані квитки
+                if (concert.Tickets.Any(t => t.Status == "Sold"))
+                {
+                    await transaction.RollbackAsync();
+                    TempData["ErrorMessage"] = "Неможливо видалити концерт, оскільки на нього вже продані квитки.";
+                    return RedirectToAction(nameof(Index));
+                }
+
+                // Видаляємо пов'язані PurchaseItems
                 foreach (var ticket in concert.Tickets)
                 {
                     _context.PurchaseItems.RemoveRange(ticket.PurchaseItems);
                 }
 
-                // Видаляємо всі пов'язані Tickets
+                // Видаляємо квитки
                 _context.Tickets.RemoveRange(concert.Tickets);
+
+                // Очищаємо зв'язок з жанрами
+                concert.Genres.Clear();
 
                 // Видаляємо сам концерт
                 _context.Concerts.Remove(concert);
 
+                // Зберігаємо зміни
                 await _context.SaveChangesAsync();
                 await transaction.CommitAsync();
 
@@ -871,7 +915,6 @@ namespace ConcertSystemInfrastructure.Controllers
                 return RedirectToAction(nameof(Index));
             }
         }
-
         // GET: Concerts/BuyTicket/5
         public async Task<IActionResult> BuyTicket(int? id)
         {
@@ -1162,6 +1205,7 @@ namespace ConcertSystemInfrastructure.Controllers
 }
 
 // ==== Controllers\HomeController.cs ====
+// ==== Controllers\HomeController.cs ====
 using ConcertSystemInfrastructure.Models;
 using Microsoft.AspNetCore.Mvc;
 using System.Diagnostics;
@@ -1177,8 +1221,7 @@ public class HomeController : Controller
 
     public IActionResult Index()
     {
-        // ��������������� �� ������� � ����������
-        return RedirectToAction("Index", "Concerts");
+        return View();
     }
 
     public IActionResult Privacy()
@@ -2485,8 +2528,15 @@ namespace ConcertSystemInfrastructure.Models
 
 <h3>Ви впевнені, що хочете видалити цей концерт?</h3>
 <div>
+    <h4>Концерт</h4>
     <hr />
     <dl class="row">
+        <dt class="col-sm-2">
+            @Html.DisplayNameFor(model => model.Artist)
+        </dt>
+        <dd class="col-sm-10">
+            @Html.DisplayFor(model => model.Artist.FullName)
+        </dd>
         <dt class="col-sm-2">
             @Html.DisplayNameFor(model => model.ConcertDate)
         </dt>
@@ -2511,38 +2561,9 @@ namespace ConcertSystemInfrastructure.Models
         <dd class="col-sm-10">
             @Html.DisplayFor(model => model.AvailableTickets)
         </dd>
-        <dt class="col-sm-2">
-            @Html.DisplayNameFor(model => model.Artist)
-        </dt>
-        <dd class="col-sm-10">
-            @Html.DisplayFor(model => model.Artist.FullName)
-        </dd>
-        <dt class="col-sm-2">
-            Жанри
-        </dt>
-        <dd class="col-sm-10">
-            @foreach (var genre in Model.Genres)
-            {
-                <span>@genre.Name</span>
-            }
-        </dd>
     </dl>
 
-    @if (ViewData["HasTickets"] as bool? == true)
-    {
-        <div class="alert alert-warning">
-            <strong>Увага!</strong> Цей концерт має пов'язані квитки. Вони будуть видалені разом із концертом.
-        </div>
-    }
-
-    @if (ViewData["HasPurchases"] as bool? == true)
-    {
-        <div class="alert alert-danger">
-            <strong>Увага!</strong> Цей концерт має пов'язані покупки. Вони будуть видалені разом із концертом.
-        </div>
-    }
-
-    <form asp-action="Delete">
+    <form asp-action="DeleteConfirmed" method="post">
         <input type="hidden" asp-for="Id" />
         <input type="submit" value="Видалити" class="btn btn-danger" /> |
         <a asp-action="Index">Повернутися до списку</a>
@@ -2694,6 +2715,7 @@ namespace ConcertSystemInfrastructure.Models
 }
 
 // ==== Views\Concerts\Index.cshtml ====
+
 @model IEnumerable<ConcertSystemDomain.Model.Concert>
 
 @{
@@ -2702,7 +2724,7 @@ namespace ConcertSystemInfrastructure.Models
 
 <h1>Події</h1>
 
-<!-- Відображення повідомлень -->
+<!-- Повідомлення -->
 @if (TempData["SuccessMessage"] != null)
 {
     <div class="alert alert-success" role="alert">
@@ -2717,125 +2739,39 @@ namespace ConcertSystemInfrastructure.Models
 }
 
 <p>
-    <a asp-action="Create" class="btn btn-primary">Додати подію</a>
+    <a asp-action="Create" class="btn btn-primary">Додати новий концерт</a>
 </p>
 
-<!-- Діаграми -->
-<div class="row">
-    <div class="col-md-6">
-        <h3>Кількість концертів за роками</h3>
-        <div id="concertsByYearChart"></div>
-    </div>
-    <div class="col-md-6">
-        <h3>Кількість проданих квитків за жанрами</h3>
-        <div id="ticketsByGenreChart"></div>
-    </div>
-</div>
-
-<!-- Перевірка, чи є події -->
-@if (Model.Any())
-{
-    <!-- Таблиця подій -->
-    <table class="table">
-        <thead>
+<table class="table">
+    <thead>
+        <tr>
+            <th>Артист</th>
+            <th>Дата концерту</th>
+            <th>Місто</th>
+            <th>Всього квитків</th>
+            <th>Доступно квитків</th>
+            <th>Дії</th>
+        </tr>
+    </thead>
+    <tbody>
+        @foreach (var item in Model)
+        {
             <tr>
-                <th>Дата події</th>
-                <th>Місто проведення</th>
-                <th>Загальна кількість квитків</th>
-                <th>Доступні квитки</th>
-                <th>Артист</th>
-                <th>Жанри</th>
-                <th>Дії</th>
+                <td>@Html.DisplayFor(modelItem => item.Artist.FullName)</td>
+                <td>@Html.DisplayFor(modelItem => item.ConcertDate)</td>
+                <td>@Html.DisplayFor(modelItem => item.Location)</td>
+                <td>@Html.DisplayFor(modelItem => item.TotalTickets)</td>
+                <td>@Html.DisplayFor(modelItem => item.AvailableTickets)</td>
+                <td>
+                    <a asp-action="Edit" asp-route-id="@item.Id" class="btn btn-sm btn-secondary">Редагувати</a>
+                    <a asp-action="Details" asp-route-id="@item.Id" class="btn btn-sm btn-info">Деталі</a>
+                    <a asp-action="Delete" asp-route-id="@item.Id" class="btn btn-sm btn-danger">Видалити</a>
+                    <a asp-action="BuyTicket" asp-route-id="@item.Id" class="btn btn-sm btn-primary">Купити квиток</a>
+                </td>
             </tr>
-        </thead>
-        <tbody>
-            @foreach (var item in Model)
-            {
-                <tr>
-                    <td>@Html.DisplayFor(modelItem => item.ConcertDate)</td>
-                    <td>@Html.DisplayFor(modelItem => item.Location)</td>
-                    <td>@Html.DisplayFor(modelItem => item.TotalTickets)</td>
-                    <td>@Html.DisplayFor(modelItem => item.AvailableTickets)</td>
-                    <td>@Html.DisplayFor(modelItem => item.Artist.FullName)</td>
-                    <td>
-                        @foreach (var genre in item.Genres)
-                        {
-                            <span>@genre.Name</span>
-                        }
-                    </td>
-                    <td>
-                        <a asp-action="Edit" asp-route-id="@item.Id" class="btn btn-sm btn-secondary">Редагувати</a>
-                        <a asp-action="Delete" asp-route-id="@item.Id" class="btn btn-sm btn-danger">Видалити</a>
-                        <a asp-action="BuyTicket" asp-route-id="@item.Id" class="btn btn-sm btn-success">Купити квиток</a>
-                    </td>
-                </tr>
-            }
-        </tbody>
-    </table>
-}
-else
-{
-    <div class="alert alert-info" role="alert">
-        Вибачте, схожих подій немає, оберіть інші фільтри.
-    </div>
-}
-
-@section Scripts {
-    <script type="text/javascript" src="https://www.gstatic.com/charts/loader.js"></script>
-    <script type="text/javascript">
-        google.charts.load('current', { 'packages': ['corechart'] });
-        google.charts.setOnLoadCallback(drawCharts);
-
-        function drawCharts() {
-            // Діаграма 1: Кількість концертів за роками
-            fetch('/api/charts/concertsByYear')
-                .then(response => response.json())
-                .then(data => {
-                    const dataTable = new google.visualization.DataTable();
-                    dataTable.addColumn('string', 'Рік');
-                    dataTable.addColumn('number', 'Кількість концертів');
-
-                    data.forEach(item => {
-                        dataTable.addRow([item.year, item.count]);
-                    });
-
-                    const options = {
-                        title: 'Концерти за роками',
-                        width: 600,
-                        height: 400,
-                        legend: { position: 'none' }
-                    };
-
-                    const chart = new google.visualization.ColumnChart(document.getElementById('concertsByYearChart'));
-                    chart.draw(dataTable, options);
-                });
-
-            // Діаграма 2: Кількість проданих квитків за жанрами
-            fetch('/api/charts/ticketsByGenre')
-                .then(response => response.json())
-                .then(data => {
-                    const dataTable = new google.visualization.DataTable();
-                    dataTable.addColumn('string', 'Жанр');
-                    dataTable.addColumn('number', 'Кількість проданих квитків');
-
-                    data.forEach(item => {
-                        dataTable.addRow([item.genre, item.count]);
-                    });
-
-                    const options = {
-                        title: 'Продані квитки за жанрами',
-                        width: 600,
-                        height: 400,
-                        legend: { position: 'none' }
-
-                    };
-
-                    const chart = new google.visualization.ColumnChart(document.getElementById('ticketsByGenreChart'));
-                    chart.draw(dataTable, options);
-                });
         }
-    </script>
-}
+    </tbody>
+</table>
 
 // ==== Views\Genres\Create.cshtml ====
 @model ConcertSystemDomain.Model.Genre
@@ -3007,6 +2943,97 @@ else
 
 // ==== Views\Home\Index.cshtml ====
 
+@{
+    ViewData["Title"] = "Головна";
+}
+
+<h1>Статистика концертів</h1>
+
+<!-- Повідомлення -->
+@if (TempData["SuccessMessage"] != null)
+{
+    <div class="alert alert-success" role="alert">
+        @TempData["SuccessMessage"]
+    </div>
+}
+@if (TempData["ErrorMessage"] != null)
+{
+    <div class="alert alert-danger" role="alert">
+        @TempData["ErrorMessage"]
+    </div>
+}
+
+<!-- Діаграми -->
+<div class="row">
+    <div class="col-md-6">
+        <div id="concertsByYearChart"></div>
+    </div>
+    <div class="col-md-6">
+        <div id="ticketsByGenreChart"></div>
+    </div>
+</div>
+
+@section Scripts {
+    <script type="text/javascript" src="https://www.gstatic.com/charts/loader.js"></script>
+    <script type="text/javascript">
+        google.charts.load('current', { 'packages': ['corechart'] });
+        google.charts.setOnLoadCallback(drawCharts);
+
+        function drawCharts() {
+            // Діаграма 1: Кількість концертів за роками
+            fetch('/api/charts/concertsByYear')
+                .then(response => response.json())
+                .then(data => {
+                    const dataTable = new google.visualization.DataTable();
+                    dataTable.addColumn('string', 'Рік');
+                    dataTable.addColumn('number', 'Кількість концертів');
+
+                    data.forEach(item => {
+                        dataTable.addRow([item.year, item.count]);
+                    });
+
+                    const options = {
+                        title: 'Концерти за роками',
+                        width: 500,
+                        height: 400,
+                        legend: { position: 'none' },
+                        backgroundColor: '#FAF9F6',
+                        colors: ['#8A2BE2'] 
+                    };
+
+                    const chart = new google.visualization.ColumnChart(document.getElementById('concertsByYearChart'));
+                    chart.draw(dataTable, options);
+                })
+                .catch(error => console.error('Помилка завантаження даних для діаграми концертів за роками:', error));
+
+            // Діаграма 2: Кількість проданих квитків за жанрами
+            fetch('/api/charts/ticketsByGenre')
+                .then(response => response.json())
+                .then(data => {
+                    const dataTable = new google.visualization.DataTable();
+                    dataTable.addColumn('string', 'Жанр');
+                    dataTable.addColumn('number', 'Кількість проданих квитків');
+
+                    data.forEach(item => {
+                        dataTable.addRow([item.genre, item.count]);
+                    });
+
+                    const options = {
+                        title: 'Продані квитки за жанрами',
+                        width: 500,
+                        height: 400,
+                        legend: { position: 'none' },
+                        backgroundColor: '#FAF9F6',
+                        colors: ['#8A2BE2'] 
+                    };
+
+                    const chart = new google.visualization.ColumnChart(document.getElementById('ticketsByGenreChart'));
+                    chart.draw(dataTable, options);
+                })
+                .catch(error => console.error('Помилка завантаження даних для діаграми квитків за жанрами:', error));
+        }
+    </script>
+}
 
 // ==== Views\Home\Privacy.cshtml ====
 @{
