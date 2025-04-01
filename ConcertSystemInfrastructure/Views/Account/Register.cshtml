@@ -1,0 +1,22 @@
+﻿@model dynamic
+@{
+    ViewData["Title"] = "Реєстрація";
+}
+
+<h1>Реєстрація</h1>
+<form method="post">
+    <div asp-validation-summary="All" class="text-danger"></div>
+    <div class="form-group">
+        <label>Email</label>
+        <input name="email" class="form-control" />
+    </div>
+    <div class="form-group">
+        <label>Пароль</label>
+        <input name="password" type="password" class="form-control" />
+    </div>
+    <div class="form-group">
+        <label>ПІБ</label>
+        <input name="fullName" class="form-control" />
+    </div>
+    <button type="submit" class="btn btn-primary">Зареєструватися</button>
+</form>

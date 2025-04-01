@@ -20,16 +20,17 @@
         @TempData["ErrorMessage"]
     </div>
 }
-
-<p>
-    <a asp-action="Create" class="btn btn-primary">Додати новий концерт</a>
-</p>
-
+@if (User.IsInRole("Admin"))
+{
+    <p>
+        <a asp-action="Create" class="btn btn-primary">Додати нову подію</a>
+    </p>
+}
 <table class="table">
     <thead>
         <tr>
             <th>Артист</th>
-            <th>Дата концерту</th>
+            <th>Дата події</th>
             <th>Місто</th>
             <th>Всього квитків</th>
             <th>Доступно квитків</th>
@@ -46,10 +47,16 @@
                 <td>@Html.DisplayFor(modelItem => item.TotalTickets)</td>
                 <td>@Html.DisplayFor(modelItem => item.AvailableTickets)</td>
                 <td>
-                    <a asp-action="Edit" asp-route-id="@item.Id" class="btn btn-sm btn-secondary">Редагувати</a>
+                    @if (User.IsInRole("Admin"))
+                    {
+                        <a asp-action="Edit" asp-route-id="@item.Id" class="btn btn-sm btn-secondary">Редагувати</a>
+                        <a asp-action="Delete" asp-route-id="@item.Id" class="btn btn-sm btn-danger">Видалити</a>
+                    }
                     <a asp-action="Details" asp-route-id="@item.Id" class="btn btn-sm btn-info">Деталі</a>
-                    <a asp-action="Delete" asp-route-id="@item.Id" class="btn btn-sm btn-danger">Видалити</a>
-                    <a asp-action="BuyTicket" asp-route-id="@item.Id" class="btn btn-sm btn-primary">Купити квиток</a>
+                    @if (User.IsInRole("Viewer"))
+                    {
+                        <a asp-action="BuyTicket" asp-route-id="@item.Id" class="btn btn-sm btn-primary">Купити квиток</a>
+                    }
                 </td>
             </tr>
         }

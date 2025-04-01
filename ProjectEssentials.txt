@@ -13,6 +13,7 @@
     <PackageReference Include="DocumentFormat.OpenXml" Version="3.3.0" />
     <PackageReference Include="DocumentFormat.OpenXml.Framework" Version="3.3.0" />
     <PackageReference Include="EPPlus" Version="7.7.0" />
+    <PackageReference Include="Microsoft.AspNetCore.Identity.EntityFrameworkCore" Version="9.0.0" />
     <PackageReference Include="Microsoft.EntityFrameworkCore" Version="9.0.3" />
     <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="9.0.3">
       <PrivateAssets>all</PrivateAssets>
@@ -28,6 +29,18 @@
 
 </Project>
 
+
+// ==== Model\ApplicationUser.cs ====
+using Microsoft.AspNetCore.Identity;
+
+namespace ConcertSystemDomain.Model
+{
+    public class ApplicationUser : IdentityUser
+    {
+        // Додаткові поля, якщо потрібні (наприклад, ім’я)
+        public string FullName { get; set; }
+    }
+}
 
 // ==== Model\Artist.cs ====
 using System;
@@ -251,7 +264,7 @@ public partial class Ticket : Entity
 // ==== appsettings.json ====
 {
     "ConnectionStrings": {
-        "DefaultConnection": "Server=DESKTOP-D2I193F\\SQLEXPRESS; Database=ConcertTicketSystem; Trusted_Connection=True; MultipleActiveResultSets=true"
+        "DefaultConnection": "Server=DESKTOP-D2I193F\\SQLEXPRESS;Database=ConcertTicketSystem;Trusted_Connection=True;Encrypt=False;"
     },
     "Logging": {
         "LogLevel": {
@@ -263,9 +276,10 @@ public partial class Ticket : Entity
 }
 
 // ==== Program.cs ====
-// ==== Program.cs ====
 using ConcertSystemInfrastructure;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.AspNetCore.Identity;
+using ConcertSystemDomain.Model;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -274,12 +288,24 @@ var connectionString = builder.Configuration.GetConnectionString("DefaultConnect
 builder.Services.AddDbContext<ConcertTicketSystemContext>(options =>
     options.UseSqlServer(connectionString));
 
-// ������ ���������� � ������
+// ������ Identity
+builder.Services.AddIdentity<ApplicationUser, IdentityRole>()
+    .AddEntityFrameworkStores<ConcertTicketSystemContext>()
+    .AddDefaultTokenProviders();
+
+// ������������ ��������������
+builder.Services.AddAuthentication()
+    .AddCookie(options =>
+    {
+        options.LoginPath = "/Account/Login";
+        options.LogoutPath = "/Account/Logout";
+        options.AccessDeniedPath = "/Account/AccessDenied";
+    });
+
 builder.Services.AddControllersWithViews();
 
 var app = builder.Build();
 
-// ������������ middleware
 if (!app.Environment.IsDevelopment())
 {
     app.UseExceptionHandler("/Home/Error");
@@ -288,17 +314,139 @@ if (!app.Environment.IsDevelopment())
 
 app.UseHttpsRedirection();
 app.UseStaticFiles();
-
 app.UseRouting();
 
+app.UseAuthentication();
 app.UseAuthorization();
 
-// ������������ �������� �� �������������
 app.MapControllerRoute(
     name: "default",
-    pattern: "{controller=Home}/{action=Index}/{id?}"); // ������ � Concerts �� Home
+    pattern: "{controller=Home}/{action=Index}/{id?}");
+
+// ������������ ����� � �����
+using (var scope = app.Services.CreateScope())
+{
+    var roleManager = scope.ServiceProvider.GetRequiredService<RoleManager<IdentityRole>>();
+    var userManager = scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
+
+    // ���������� ������������ �����
+    await InitializeRolesAndAdminAsync(roleManager, userManager);
+}
 
 app.Run();
+
+// ���������� ������� ��� ������������ ����� � �����
+async Task InitializeRolesAndAdminAsync(RoleManager<IdentityRole> roleManager, UserManager<ApplicationUser> userManager)
+{
+    string[] roleNames = { "Admin", "Viewer" };
+    foreach (var roleName in roleNames)
+    {
+        if (!await roleManager.RoleExistsAsync(roleName))
+        {
+            await roleManager.CreateAsync(new IdentityRole(roleName));
+        }
+    }
+
+    var adminEmail = "admin@concertsystem.com";
+    if (await userManager.FindByEmailAsync(adminEmail) == null)
+    {
+        var adminUser = new ApplicationUser { UserName = adminEmail, Email = adminEmail, FullName = "Admin User" };
+        await userManager.CreateAsync(adminUser, "Admin@123");
+        await userManager.AddToRoleAsync(adminUser, "Admin");
+    }
+}
+
+// ==== Controllers\AccountController.cs ====
+using Microsoft.AspNetCore.Identity;
+using Microsoft.AspNetCore.Mvc;
+using ConcertSystemDomain.Model;
+using System.Threading.Tasks;
+
+namespace ConcertSystemInfrastructure.Controllers
+{
+    public class AccountController : Controller
+    {
+        private readonly UserManager<ApplicationUser> _userManager;
+        private readonly SignInManager<ApplicationUser> _signInManager;
+
+        public AccountController(UserManager<ApplicationUser> userManager, SignInManager<ApplicationUser> signInManager)
+        {
+            _userManager = userManager;
+            _signInManager = signInManager;
+        }
+
+        // GET: /Account/Register
+        [HttpGet]
+        public IActionResult Register()
+        {
+            return View();
+        }
+
+        // POST: /Account/Register
+        [HttpPost]
+        [ValidateAntiForgeryToken]
+        public async Task<IActionResult> Register(string email, string password, string fullName)
+        {
+            if (ModelState.IsValid)
+            {
+                var user = new ApplicationUser { UserName = email, Email = email, FullName = fullName };
+                var result = await _userManager.CreateAsync(user, password);
+
+                if (result.Succeeded)
+                {
+                    // За замовчуванням новий користувач — Viewer
+                    await _userManager.AddToRoleAsync(user, "Viewer");
+                    await _signInManager.SignInAsync(user, isPersistent: false);
+                    return RedirectToAction("Index", "Home");
+                }
+                foreach (var error in result.Errors)
+                {
+                    ModelState.AddModelError(string.Empty, error.Description);
+                }
+            }
+            return View();
+        }
+
+        // GET: /Account/Login
+        [HttpGet]
+        public IActionResult Login()
+        {
+            return View();
+        }
+
+        // POST: /Account/Login
+        [HttpPost]
+        [ValidateAntiForgeryToken]
+        public async Task<IActionResult> Login(string email, string password)
+        {
+            if (ModelState.IsValid)
+            {
+                var result = await _signInManager.PasswordSignInAsync(email, password, false, false);
+                if (result.Succeeded)
+                {
+                    return RedirectToAction("Index", "Home");
+                }
+                ModelState.AddModelError(string.Empty, "Невірний логін або пароль.");
+            }
+            return View();
+        }
+
+        // POST: /Account/Logout
+        [HttpPost]
+        [ValidateAntiForgeryToken]
+        public async Task<IActionResult> Logout()
+        {
+            await _signInManager.SignOutAsync();
+            return RedirectToAction("Index", "Home");
+        }
+
+        // GET: /Account/AccessDenied
+        public IActionResult AccessDenied()
+        {
+            return View();
+        }
+    }
+}
 
 // ==== Controllers\ArtistsController.cs ====
 using Microsoft.AspNetCore.Mvc;
@@ -307,9 +455,11 @@ using ConcertSystemDomain.Model;
 using ConcertSystemInfrastructure;
 using System.Linq;
 using System.Threading.Tasks;
+using Microsoft.AspNetCore.Authorization;
 
 namespace ConcertSystemInfrastructure.Controllers
 {
+    [Authorize(Roles = "Admin")]
     public class ArtistsController : Controller
     {
         private readonly ConcertTicketSystemContext _context;
@@ -320,6 +470,7 @@ namespace ConcertSystemInfrastructure.Controllers
         }
 
         // GET: Artists
+        [AllowAnonymous]
         public async Task<IActionResult> Index()
         {
             ViewData["Artists"] = await _context.Artists.Select(a => a.FullName).Distinct().ToListAsync();
@@ -329,6 +480,7 @@ namespace ConcertSystemInfrastructure.Controllers
             return View(await _context.Artists.ToListAsync());
         }
         // GET: Artists/Details/5
+        [AllowAnonymous]
         public async Task<IActionResult> Details(int? id)
         {
             if (id == null)
@@ -349,6 +501,7 @@ namespace ConcertSystemInfrastructure.Controllers
         }
 
         // GET: Artists/Create
+        [Authorize(Roles = "Admin")]
         public IActionResult Create()
         {
             return View();
@@ -357,6 +510,7 @@ namespace ConcertSystemInfrastructure.Controllers
         // POST: Artists/Create
         [HttpPost]
         [ValidateAntiForgeryToken]
+        [Authorize(Roles = "Admin")]
         public async Task<IActionResult> Create([Bind("Id,FullName,SocialMedia")] Artist artist)
         {
             if (await _context.Artists.AnyAsync(a => a.FullName == artist.FullName))
@@ -379,6 +533,7 @@ namespace ConcertSystemInfrastructure.Controllers
         }
 
         // GET: Artists/Edit/5
+        [Authorize(Roles = "Admin")]
         public async Task<IActionResult> Edit(int? id)
         {
             if (id == null)
@@ -397,6 +552,7 @@ namespace ConcertSystemInfrastructure.Controllers
         // POST: Artists/Edit/5
         [HttpPost]
         [ValidateAntiForgeryToken]
+        [Authorize(Roles = "Admin")]
         public async Task<IActionResult> Edit(int id, [Bind("Id,FullName,SocialMedia")] Artist artist)
         {
             if (id != artist.Id)
@@ -438,6 +594,7 @@ namespace ConcertSystemInfrastructure.Controllers
         }
 
         // GET: Artists/Delete/5
+        [Authorize(Roles = "Admin")]
         public async Task<IActionResult> Delete(int? id)
         {
             if (id == null)
@@ -458,6 +615,7 @@ namespace ConcertSystemInfrastructure.Controllers
         // POST: Artists/Delete/5
         [HttpPost, ActionName("Delete")]
         [ValidateAntiForgeryToken]
+        [Authorize(Roles = "Admin")]
         public async Task<IActionResult> DeleteConfirmed(int id)
         {
             using var transaction = await _context.Database.BeginTransactionAsync();
@@ -588,9 +746,11 @@ using System;
 using System.Linq;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Mvc.Rendering;
+using Microsoft.AspNetCore.Authorization;
 
 namespace ConcertSystemInfrastructure.Controllers
 {
+    
     public class ConcertsController : Controller
     {
         private readonly ConcertTicketSystemContext _context;
@@ -601,6 +761,7 @@ namespace ConcertSystemInfrastructure.Controllers
         }
 
         // GET: Concerts
+        [AllowAnonymous]
         public async Task<IActionResult> Index(string artistFilter, string genreFilter, string locationFilter, DateTime? dateFilter)
         {
             ViewBag.Artists = await _context.Artists.Select(a => a.FullName).Distinct().ToListAsync();
@@ -636,6 +797,7 @@ namespace ConcertSystemInfrastructure.Controllers
         }
 
         // GET: Concerts/Create
+        [Authorize(Roles = "Admin")]
         public IActionResult Create()
         {
             ViewBag.ArtistId = new SelectList(_context.Artists, "Id", "FullName");
@@ -646,6 +808,7 @@ namespace ConcertSystemInfrastructure.Controllers
         // POST: Concerts/Create
         [HttpPost]
         [ValidateAntiForgeryToken]
+        [Authorize(Roles = "Admin")]
         public async Task<IActionResult> Create([Bind("Id,ArtistId,ConcertDate,Location,TotalTickets,AvailableTickets")] Concert concert, int[] GenreIds)
         {
             // Перевірка дати
@@ -699,6 +862,7 @@ namespace ConcertSystemInfrastructure.Controllers
         }
 
         // GET: Concerts/Edit/5
+        [Authorize(Roles = "Admin")]
         public async Task<IActionResult> Edit(int? id)
         {
             if (id == null)
@@ -720,6 +884,7 @@ namespace ConcertSystemInfrastructure.Controllers
         // POST: Concerts/Edit/5
         [HttpPost]
         [ValidateAntiForgeryToken]
+        [Authorize(Roles = "Admin")]
         public async Task<IActionResult> Edit(int id, [Bind("Id,ArtistId,ConcertDate,Location,TotalTickets,AvailableTickets")] Concert concert, int[] GenreIds)
         {
             if (id != concert.Id)
@@ -835,9 +1000,29 @@ namespace ConcertSystemInfrastructure.Controllers
             ViewBag.GenreIds = new SelectList(await _context.Genres.Select(g => new { g.Id, g.Name }).ToListAsync(), "Id", "Name");
             return View(concert);
         }
+        [AllowAnonymous]
+        public async Task<IActionResult> Details(int? id)
+        {
+            if (id == null)
+            {
+                return NotFound();
+            }
 
+            var concert = await _context.Concerts
+                .Include(c => c.Artist) // Включаємо дані артиста
+                .Include(c => c.Genres) // Включаємо жанри концерту
+                .Include(c => c.Tickets) // Включаємо квитки (опціонально)
+                .FirstOrDefaultAsync(m => m.Id == id);
+
+            if (concert == null)
+            {
+                return NotFound();
+            }
+
+            return View(concert);
+        }
         // GET: Concerts/Delete/5
-        // GET: Concerts/Delete/5
+        [Authorize(Roles = "Admin")]
         public async Task<IActionResult> Delete(int? id)
         {
             if (id == null)
@@ -860,6 +1045,7 @@ namespace ConcertSystemInfrastructure.Controllers
         // POST: Concerts/Delete/5
         [HttpPost]
         [ValidateAntiForgeryToken]
+        [Authorize(Roles = "Admin")]
         public async Task<IActionResult> DeleteConfirmed(int id)
         {
             using var transaction = await _context.Database.BeginTransactionAsync();
@@ -916,6 +1102,7 @@ namespace ConcertSystemInfrastructure.Controllers
             }
         }
         // GET: Concerts/BuyTicket/5
+        [Authorize(Roles = "Viewer")]
         public async Task<IActionResult> BuyTicket(int? id)
         {
             if (id == null)
@@ -951,6 +1138,7 @@ namespace ConcertSystemInfrastructure.Controllers
         // POST: Concerts/BuyTicket/5
         [HttpPost]
         [ValidateAntiForgeryToken]
+        [Authorize(Roles = "Viewer")]
         public async Task<IActionResult> BuyTicket(int id, [Bind("FullName,Phone,Email")] Spectator spectator, int? ticketId)
         {
             // Отримуємо концерт з бази даних разом із квитками
@@ -1589,9 +1777,11 @@ using System;
 using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
+using Microsoft.AspNetCore.Authorization;
 
 namespace ConcertSystemInfrastructure.Controllers
 {
+    [Authorize(Roles = "Admin")]
     public class ReportsController : Controller
     {
         private readonly ConcertTicketSystemContext _context; 
@@ -1779,9 +1969,11 @@ using System.Threading.Tasks;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using ConcertSystemDomain.Model;
+using Microsoft.AspNetCore.Authorization;
 
 namespace ConcertSystemInfrastructure.Controllers
 {
+    [Authorize(Roles = "Admin")]
     public class SpectatorsController : Controller
     {
         private readonly ConcertTicketSystemContext _context;
@@ -2137,6 +2329,59 @@ namespace ConcertSystemInfrastructure.Models
 }
 
 
+// ==== Views\Account\AccessDenied.cshtml ====
+@{
+    ViewData["Title"] = "Доступ заборонено";
+}
+
+<h1>Доступ заборонено</h1>
+<p>У вас немає прав для доступу до цієї сторінки.</p>
+<a asp-controller="Home" asp-action="Index">Повернутися на головну</a>
+
+// ==== Views\Account\Login.cshtml ====
+@model dynamic
+@{
+    ViewData["Title"] = "Вхід";
+}
+
+<h1>Вхід</h1>
+<form method="post">
+    <div asp-validation-summary="All" class="text-danger"></div>
+    <div class="form-group">
+        <label>Email</label>
+        <input name="email" class="form-control" />
+    </div>
+    <div class="form-group">
+        <label>Пароль</label>
+        <input name="password" type="password" class="form-control" />
+    </div>
+    <button type="submit" class="btn btn-primary">Увійти</button>
+</form>
+
+// ==== Views\Account\Register.cshtml ====
+@model dynamic
+@{
+    ViewData["Title"] = "Реєстрація";
+}
+
+<h1>Реєстрація</h1>
+<form method="post">
+    <div asp-validation-summary="All" class="text-danger"></div>
+    <div class="form-group">
+        <label>Email</label>
+        <input name="email" class="form-control" />
+    </div>
+    <div class="form-group">
+        <label>Пароль</label>
+        <input name="password" type="password" class="form-control" />
+    </div>
+    <div class="form-group">
+        <label>ПІБ</label>
+        <input name="fullName" class="form-control" />
+    </div>
+    <button type="submit" class="btn btn-primary">Зареєструватися</button>
+</form>
+
 // ==== Views\Artists\Create.cshtml ====
 @model ConcertSystemDomain.Model.Artist
 
@@ -2317,10 +2562,12 @@ namespace ConcertSystemInfrastructure.Models
 }
 
 <h1>Артисти</h1>
-
-<p>
-    <a asp-action="Create" class="btn btn-primary">Додати артиста</a>
-</p>
+@if (User.IsInRole("Admin"))
+{
+	<p>
+		<a asp-action="Create" class="btn btn-primary">Додати артиста</a>
+	</p>
+}
 
 <table class="table">
     <thead>
@@ -2337,8 +2584,11 @@ namespace ConcertSystemInfrastructure.Models
                 <td>@Html.DisplayFor(modelItem => item.FullName)</td>
                 <td>@Html.DisplayFor(modelItem => item.SocialMedia)</td>
                 <td>
-                    <a asp-action="Edit" asp-route-id="@item.Id" class="btn btn-sm btn-secondary">Редагувати</a>
-                    <a asp-action="Delete" asp-route-id="@item.Id" class="btn btn-sm btn-danger">Видалити</a>
+                    @if (User.IsInRole("Admin"))
+                    {
+                        <a asp-action="Edit" asp-route-id="@item.Id" class="btn btn-sm btn-secondary">Редагувати</a>
+                        <a asp-action="Delete" asp-route-id="@item.Id" class="btn btn-sm btn-danger">Видалити</a>
+                    }
                     <a asp-action="Details" asp-route-id="@item.Id" class="btn btn-sm btn-info">Всі концерти артиста</a>
                 </td>
             </tr>
@@ -2574,52 +2824,66 @@ namespace ConcertSystemInfrastructure.Models
 @model ConcertSystemDomain.Model.Concert
 
 @{
-    ViewData["Title"] = "Details";
+    ViewData["Title"] = "Деталі концерту";
 }
 
-<h1>Details</h1>
+<h1>Деталі концерту</h1>
 
 <div>
-    <h4>Concert</h4>
+    <h4>Концерт</h4>
     <hr />
     <dl class="row">
-        <dt class = "col-sm-2">
-            @Html.DisplayNameFor(model => model.ConcertDate)
+        <dt class="col-sm-2">
+            Артист
         </dt>
-        <dd class = "col-sm-10">
+        <dd class="col-sm-10">
+            @Html.DisplayFor(model => model.Artist.FullName)
+        </dd>
+        <dt class="col-sm-2">
+            Дата концерту
+        </dt>
+        <dd class="col-sm-10">
             @Html.DisplayFor(model => model.ConcertDate)
         </dd>
-        <dt class = "col-sm-2">
-            @Html.DisplayNameFor(model => model.Location)
+        <dt class="col-sm-2">
+            Місто проведення
         </dt>
-        <dd class = "col-sm-10">
+        <dd class="col-sm-10">
             @Html.DisplayFor(model => model.Location)
         </dd>
-        <dt class = "col-sm-2">
-            @Html.DisplayNameFor(model => model.TotalTickets)
+        <dt class="col-sm-2">
+            Загальна кількість квитків
         </dt>
-        <dd class = "col-sm-10">
+        <dd class="col-sm-10">
             @Html.DisplayFor(model => model.TotalTickets)
         </dd>
-        <dt class = "col-sm-2">
-            @Html.DisplayNameFor(model => model.AvailableTickets)
+        <dt class="col-sm-2">
+            Доступні квитки
         </dt>
-        <dd class = "col-sm-10">
+        <dd class="col-sm-10">
             @Html.DisplayFor(model => model.AvailableTickets)
         </dd>
-        <dt class = "col-sm-2">
-            @Html.DisplayNameFor(model => model.Artist)
+        <dt class="col-sm-2">
+            Жанри
         </dt>
-        <dd class = "col-sm-10">
-            @Html.DisplayFor(model => model.Artist.FullName)
+        <dd class="col-sm-10">
+            @if (Model.Genres.Any())
+            {
+                @string.Join(", ", Model.Genres.Select(g => g.Name))
+            }
+            else
+            {
+                <span>Жанри не вказані</span>
+            }
         </dd>
     </dl>
 </div>
-<div>
-    <a asp-action="Edit" asp-route-id="@Model?.Id">Edit</a> |
-    <a asp-action="Index">Back to List</a>
-</div>
 
+<div>
+    <a asp-action="Edit" asp-route-id="@Model?.Id" class="btn btn-secondary">Редагувати</a> |
+    <a asp-action="BuyTicket" asp-route-id="@Model?.Id" class="btn btn-primary">Купити квиток</a> |
+    <a asp-action="Index" class="btn btn-info">Повернутися до списку</a>
+</div>
 
 // ==== Views\Concerts\Edit.cshtml ====
 @model ConcertSystemDomain.Model.Concert
@@ -2737,16 +3001,17 @@ namespace ConcertSystemInfrastructure.Models
         @TempData["ErrorMessage"]
     </div>
 }
-
-<p>
-    <a asp-action="Create" class="btn btn-primary">Додати новий концерт</a>
-</p>
-
+@if (User.IsInRole("Admin"))
+{
+    <p>
+        <a asp-action="Create" class="btn btn-primary">Додати нову подію</a>
+    </p>
+}
 <table class="table">
     <thead>
         <tr>
             <th>Артист</th>
-            <th>Дата концерту</th>
+            <th>Дата події</th>
             <th>Місто</th>
             <th>Всього квитків</th>
             <th>Доступно квитків</th>
@@ -2763,10 +3028,16 @@ namespace ConcertSystemInfrastructure.Models
                 <td>@Html.DisplayFor(modelItem => item.TotalTickets)</td>
                 <td>@Html.DisplayFor(modelItem => item.AvailableTickets)</td>
                 <td>
-                    <a asp-action="Edit" asp-route-id="@item.Id" class="btn btn-sm btn-secondary">Редагувати</a>
+                    @if (User.IsInRole("Admin"))
+                    {
+                        <a asp-action="Edit" asp-route-id="@item.Id" class="btn btn-sm btn-secondary">Редагувати</a>
+                        <a asp-action="Delete" asp-route-id="@item.Id" class="btn btn-sm btn-danger">Видалити</a>
+                    }
                     <a asp-action="Details" asp-route-id="@item.Id" class="btn btn-sm btn-info">Деталі</a>
-                    <a asp-action="Delete" asp-route-id="@item.Id" class="btn btn-sm btn-danger">Видалити</a>
-                    <a asp-action="BuyTicket" asp-route-id="@item.Id" class="btn btn-sm btn-primary">Купити квиток</a>
+                    @if (User.IsInRole("Viewer"))
+                    {
+                        <a asp-action="BuyTicket" asp-route-id="@item.Id" class="btn btn-sm btn-primary">Купити квиток</a>
+                    }
                 </td>
             </tr>
         }
@@ -3711,12 +3982,39 @@ namespace ConcertSystemInfrastructure.Models
                         <li class="nav-item">
                             <a class="nav-link text-dark" asp-area="" asp-controller="Artists" asp-action="Index">Артисти</a>
                         </li>
-                        <li class="nav-item">
-                            <a class="nav-link text-dark" asp-area="" asp-controller="Spectators" asp-action="Index">Глядачі</a>
-                        </li>
-                        <li class="nav-item">
-                            <a class="nav-link text-dark" asp-controller="Reports" asp-action="Index">Звіти</a>
-                        </li>
+                        <!-- Пункти меню тільки для адміністраторів -->
+                        @if (User.IsInRole("Admin"))
+                        {
+                            <li class="nav-item">
+                                <a class="nav-link text-dark" asp-area="" asp-controller="Spectators" asp-action="Index">Глядачі</a>
+                            </li>
+                            <li class="nav-item">
+                                <a class="nav-link text-dark" asp-controller="Reports" asp-action="Index">Звіти</a>
+                            </li>
+                        }
+                    </ul>
+                    <!-- Кнопки автентифікації -->
+                    <ul class="navbar-nav">
+                        @if (User.Identity.IsAuthenticated)
+                        {
+                            <li class="nav-item">
+                                <span class="nav-link text-dark">Привіт, @User.Identity.Name!</span>
+                            </li>
+                            <li class="nav-item">
+                                <form asp-controller="Account" asp-action="Logout" method="post">
+                                    <button type="submit" class="nav-link btn btn-link text-dark">Вийти</button>
+                                </form>
+                            </li>
+                        }
+                        else
+                        {
+                            <li class="nav-item">
+                                <a class="nav-link text-dark" asp-controller="Account" asp-action="Login">Увійти</a>
+                            </li>
+                            <li class="nav-item">
+                                <a class="nav-link text-dark" asp-controller="Account" asp-action="Register">Зареєструватися</a>
+                            </li>
+                        }
                     </ul>
                 </div>
             </div>

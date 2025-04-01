@@ -6,9 +6,11 @@ using System;
 using System.Linq;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Mvc.Rendering;
+using Microsoft.AspNetCore.Authorization;
 
 namespace ConcertSystemInfrastructure.Controllers
 {
+    
     public class ConcertsController : Controller
     {
         private readonly ConcertTicketSystemContext _context;
@@ -19,6 +21,7 @@ namespace ConcertSystemInfrastructure.Controllers
         }
 
         // GET: Concerts
+        [AllowAnonymous]
         public async Task<IActionResult> Index(string artistFilter, string genreFilter, string locationFilter, DateTime? dateFilter)
         {
             ViewBag.Artists = await _context.Artists.Select(a => a.FullName).Distinct().ToListAsync();
@@ -54,6 +57,7 @@ namespace ConcertSystemInfrastructure.Controllers
         }
 
         // GET: Concerts/Create
+        [Authorize(Roles = "Admin")]
         public IActionResult Create()
         {
             ViewBag.ArtistId = new SelectList(_context.Artists, "Id", "FullName");
@@ -64,6 +68,7 @@ namespace ConcertSystemInfrastructure.Controllers
         // POST: Concerts/Create
         [HttpPost]
         [ValidateAntiForgeryToken]
+        [Authorize(Roles = "Admin")]
         public async Task<IActionResult> Create([Bind("Id,ArtistId,ConcertDate,Location,TotalTickets,AvailableTickets")] Concert concert, int[] GenreIds)
         {
             // Перевірка дати
@@ -117,6 +122,7 @@ namespace ConcertSystemInfrastructure.Controllers
         }
 
         // GET: Concerts/Edit/5
+        [Authorize(Roles = "Admin")]
         public async Task<IActionResult> Edit(int? id)
         {
             if (id == null)
@@ -138,6 +144,7 @@ namespace ConcertSystemInfrastructure.Controllers
         // POST: Concerts/Edit/5
         [HttpPost]
         [ValidateAntiForgeryToken]
+        [Authorize(Roles = "Admin")]
         public async Task<IActionResult> Edit(int id, [Bind("Id,ArtistId,ConcertDate,Location,TotalTickets,AvailableTickets")] Concert concert, int[] GenreIds)
         {
             if (id != concert.Id)
@@ -253,6 +260,7 @@ namespace ConcertSystemInfrastructure.Controllers
             ViewBag.GenreIds = new SelectList(await _context.Genres.Select(g => new { g.Id, g.Name }).ToListAsync(), "Id", "Name");
             return View(concert);
         }
+        [AllowAnonymous]
         public async Task<IActionResult> Details(int? id)
         {
             if (id == null)
@@ -274,6 +282,7 @@ namespace ConcertSystemInfrastructure.Controllers
             return View(concert);
         }
         // GET: Concerts/Delete/5
+        [Authorize(Roles = "Admin")]
         public async Task<IActionResult> Delete(int? id)
         {
             if (id == null)
@@ -296,6 +305,7 @@ namespace ConcertSystemInfrastructure.Controllers
         // POST: Concerts/Delete/5
         [HttpPost]
         [ValidateAntiForgeryToken]
+        [Authorize(Roles = "Admin")]
         public async Task<IActionResult> DeleteConfirmed(int id)
         {
             using var transaction = await _context.Database.BeginTransactionAsync();
@@ -352,6 +362,7 @@ namespace ConcertSystemInfrastructure.Controllers
             }
         }
         // GET: Concerts/BuyTicket/5
+        [Authorize(Roles = "Viewer")]
         public async Task<IActionResult> BuyTicket(int? id)
         {
             if (id == null)
@@ -387,6 +398,7 @@ namespace ConcertSystemInfrastructure.Controllers
         // POST: Concerts/BuyTicket/5
         [HttpPost]
         [ValidateAntiForgeryToken]
+        [Authorize(Roles = "Viewer")]
         public async Task<IActionResult> BuyTicket(int id, [Bind("FullName,Phone,Email")] Spectator spectator, int? ticketId)
         {
             // Отримуємо концерт з бази даних разом із квитками

@@ -3,9 +3,11 @@ using System.Threading.Tasks;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using ConcertSystemDomain.Model;
+using Microsoft.AspNetCore.Authorization;
 
 namespace ConcertSystemInfrastructure.Controllers
 {
+    [Authorize(Roles = "Admin")]
     public class SpectatorsController : Controller
     {
         private readonly ConcertTicketSystemContext _context;

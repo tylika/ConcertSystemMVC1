@@ -5,10 +5,12 @@
 }
 
 <h1>Артисти</h1>
-
-<p>
-    <a asp-action="Create" class="btn btn-primary">Додати артиста</a>
-</p>
+@if (User.IsInRole("Admin"))
+{
+	<p>
+		<a asp-action="Create" class="btn btn-primary">Додати артиста</a>
+	</p>
+}
 
 <table class="table">
     <thead>
@@ -25,8 +27,11 @@
                 <td>@Html.DisplayFor(modelItem => item.FullName)</td>
                 <td>@Html.DisplayFor(modelItem => item.SocialMedia)</td>
                 <td>
-                    <a asp-action="Edit" asp-route-id="@item.Id" class="btn btn-sm btn-secondary">Редагувати</a>
-                    <a asp-action="Delete" asp-route-id="@item.Id" class="btn btn-sm btn-danger">Видалити</a>
+                    @if (User.IsInRole("Admin"))
+                    {
+                        <a asp-action="Edit" asp-route-id="@item.Id" class="btn btn-sm btn-secondary">Редагувати</a>
+                        <a asp-action="Delete" asp-route-id="@item.Id" class="btn btn-sm btn-danger">Видалити</a>
+                    }
                     <a asp-action="Details" asp-route-id="@item.Id" class="btn btn-sm btn-info">Всі концерти артиста</a>
                 </td>
             </tr>

@@ -4,9 +4,11 @@ using ConcertSystemDomain.Model;
 using ConcertSystemInfrastructure;
 using System.Linq;
 using System.Threading.Tasks;
+using Microsoft.AspNetCore.Authorization;
 
 namespace ConcertSystemInfrastructure.Controllers
 {
+    [Authorize(Roles = "Admin")]
     public class ArtistsController : Controller
     {
         private readonly ConcertTicketSystemContext _context;
@@ -17,6 +19,7 @@ namespace ConcertSystemInfrastructure.Controllers
         }
 
         // GET: Artists
+        [AllowAnonymous]
         public async Task<IActionResult> Index()
         {
             ViewData["Artists"] = await _context.Artists.Select(a => a.FullName).Distinct().ToListAsync();
@@ -26,6 +29,7 @@ namespace ConcertSystemInfrastructure.Controllers
             return View(await _context.Artists.ToListAsync());
         }
         // GET: Artists/Details/5
+        [AllowAnonymous]
         public async Task<IActionResult> Details(int? id)
         {
             if (id == null)
@@ -46,6 +50,7 @@ namespace ConcertSystemInfrastructure.Controllers
         }
 
         // GET: Artists/Create
+        [Authorize(Roles = "Admin")]
         public IActionResult Create()
         {
             return View();
@@ -54,6 +59,7 @@ namespace ConcertSystemInfrastructure.Controllers
         // POST: Artists/Create
         [HttpPost]
         [ValidateAntiForgeryToken]
+        [Authorize(Roles = "Admin")]
         public async Task<IActionResult> Create([Bind("Id,FullName,SocialMedia")] Artist artist)
         {
             if (await _context.Artists.AnyAsync(a => a.FullName == artist.FullName))
@@ -76,6 +82,7 @@ namespace ConcertSystemInfrastructure.Controllers
         }
 
         // GET: Artists/Edit/5
+        [Authorize(Roles = "Admin")]
         public async Task<IActionResult> Edit(int? id)
         {
             if (id == null)
@@ -94,6 +101,7 @@ namespace ConcertSystemInfrastructure.Controllers
         // POST: Artists/Edit/5
         [HttpPost]
         [ValidateAntiForgeryToken]
+        [Authorize(Roles = "Admin")]
         public async Task<IActionResult> Edit(int id, [Bind("Id,FullName,SocialMedia")] Artist artist)
         {
             if (id != artist.Id)
@@ -135,6 +143,7 @@ namespace ConcertSystemInfrastructure.Controllers
         }
 
         // GET: Artists/Delete/5
+        [Authorize(Roles = "Admin")]
         public async Task<IActionResult> Delete(int? id)
         {
             if (id == null)
@@ -155,6 +164,7 @@ namespace ConcertSystemInfrastructure.Controllers
         // POST: Artists/Delete/5
         [HttpPost, ActionName("Delete")]
         [ValidateAntiForgeryToken]
+        [Authorize(Roles = "Admin")]
         public async Task<IActionResult> DeleteConfirmed(int id)
         {
             using var transaction = await _context.Database.BeginTransactionAsync();

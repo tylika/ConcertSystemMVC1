@@ -1,9 +1,12 @@
 ﻿using Microsoft.EntityFrameworkCore;
-using ConcertSystemDomain.Model; // Імпорт моделей
+using ConcertSystemDomain.Model;
+using Microsoft.AspNetCore.Identity.EntityFrameworkCore; // Додаємо для Identity
+using Microsoft.AspNetCore.Identity; // Додаємо для типів Identity
 
 namespace ConcertSystemInfrastructure
 {
-    public partial class ConcertTicketSystemContext : DbContext
+    // Змінюємо базовий клас з DbContext на IdentityDbContext<ApplicationUser>
+    public partial class ConcertTicketSystemContext : IdentityDbContext<ApplicationUser>
     {
         public ConcertTicketSystemContext()
         {
@@ -14,6 +17,7 @@ namespace ConcertSystemInfrastructure
         {
         }
 
+        // Залишаємо твої існуючі DbSet без змін
         public virtual DbSet<Artist> Artists { get; set; }
         public virtual DbSet<Concert> Concerts { get; set; }
         public virtual DbSet<Genre> Genres { get; set; }
@@ -22,13 +26,24 @@ namespace ConcertSystemInfrastructure
         public virtual DbSet<Spectator> Spectators { get; set; }
         public virtual DbSet<Ticket> Tickets { get; set; }
 
+        // Прибираємо OnConfiguring, оскільки конфігурація вже є в Program.cs
+        // Якщо хочеш залишити, можеш, але тоді враховуй, що Program.cs має пріоритет
         protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)
+        {
+            if (!optionsBuilder.IsConfigured)
+            {
 #pragma warning disable CS1030 // #warning directive
-            => optionsBuilder.UseSqlServer("Server=DESKTOP-D2I193F\\SQLEXPRESS; Database=ConcertTicketSystem; Trusted_Connection=True; TrustServerCertificate=True;");
+                optionsBuilder.UseSqlServer("Server=DESKTOP-D2I193F\\SQLEXPRESS; Database=ConcertTicketSystem; Trusted_Connection=True; TrustServerCertificate=True;");
 #pragma warning restore CS1030
+            }
+        }
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
+            // Обов’язково викликаємо базову конфігурацію Identity
+            base.OnModelCreating(modelBuilder);
+
+            // Твоя існуюча конфігурація моделей
             modelBuilder.Entity<Artist>(entity =>
             {
                 entity.HasKey(e => e.Id).HasName("PK__Artists__3214EC07DD45FB32");
@@ -129,6 +144,10 @@ namespace ConcertSystemInfrastructure
                 entity.Property(e => e.Status).HasMaxLength(20).IsUnicode(false).HasDefaultValue("Available");
             });
 
+            // Додаткова конфігурація для Identity, якщо потрібно
+            // Наприклад, змінити назви таблиць (опціонально):
+            // modelBuilder.Entity<ApplicationUser>().ToTable("Users");
+            // modelBuilder.Entity<IdentityRole>().ToTable("Roles");
         }
     }
 }
