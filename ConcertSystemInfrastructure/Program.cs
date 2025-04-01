@@ -10,12 +10,22 @@ var connectionString = builder.Configuration.GetConnectionString("DefaultConnect
 builder.Services.AddDbContext<ConcertTicketSystemContext>(options =>
     options.UseSqlServer(connectionString));
 
-// Додаємо Identity
+// Додаємо Identity з власним дескриптором помилок
 builder.Services.AddIdentity<ApplicationUser, IdentityRole>()
     .AddEntityFrameworkStores<ConcertTicketSystemContext>()
-    .AddDefaultTokenProviders();
+    .AddDefaultTokenProviders()
+    .AddErrorDescriber<CustomIdentityErrorDescriber>(); // Додаємо наш дескриптор помилок
 
-// Налаштування автентифікації
+// Налаштування вимог до пароля
+builder.Services.Configure<IdentityOptions>(options =>
+{
+    options.Password.RequireDigit = true;
+    options.Password.RequiredLength = 6;
+    options.Password.RequireNonAlphanumeric = false;
+    options.Password.RequireUppercase = true;
+    options.Password.RequireLowercase = true;
+});
+
 builder.Services.AddAuthentication()
     .AddCookie(options =>
     {
@@ -50,14 +60,11 @@ using (var scope = app.Services.CreateScope())
 {
     var roleManager = scope.ServiceProvider.GetRequiredService<RoleManager<IdentityRole>>();
     var userManager = scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
-
-    // Асинхронна ініціалізація ролей
     await InitializeRolesAndAdminAsync(roleManager, userManager);
 }
 
 app.Run();
 
-// Асинхронна функція для ініціалізації ролей і адміна
 async Task InitializeRolesAndAdminAsync(RoleManager<IdentityRole> roleManager, UserManager<ApplicationUser> userManager)
 {
     string[] roleNames = { "Admin", "Viewer" };

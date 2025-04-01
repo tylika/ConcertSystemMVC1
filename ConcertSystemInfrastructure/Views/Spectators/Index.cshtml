@@ -6,9 +6,8 @@
 
 <h1>Глядачі</h1>
 
-<p>
-    <a asp-action="Create" class="btn btn-primary">Додати нового</a>
-</p>
+
+
 <table class="table">
     <thead>
         <tr>
@@ -38,7 +37,7 @@
                     @Html.DisplayFor(modelItem => item.Email)
                 </td>
                 <td>
-                    <a asp-action="Edit" asp-route-id="@item.Id" class="btn btn-sm btn-secondary">Редагувати</a> |
+                    
                     <a asp-action="Details" asp-route-id="@item.Id" class="btn btn-sm btn-info">Деталі</a> |
                     <a asp-action="Delete" asp-route-id="@item.Id" class="btn btn-sm btn-danger">Видалити</a>
                 </td>

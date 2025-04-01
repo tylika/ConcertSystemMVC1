@@ -747,6 +747,7 @@ using System.Linq;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Mvc.Rendering;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Identity;
 
 namespace ConcertSystemInfrastructure.Controllers
 {
@@ -754,10 +755,12 @@ namespace ConcertSystemInfrastructure.Controllers
     public class ConcertsController : Controller
     {
         private readonly ConcertTicketSystemContext _context;
+        private readonly UserManager<ApplicationUser> _userManager;
 
-        public ConcertsController(ConcertTicketSystemContext context)
+        public ConcertsController(ConcertTicketSystemContext context, UserManager<ApplicationUser> userManager)
         {
             _context = context;
+            _userManager = userManager;
         }
 
         // GET: Concerts
@@ -1102,6 +1105,7 @@ namespace ConcertSystemInfrastructure.Controllers
             }
         }
         // GET: Concerts/BuyTicket/5
+        // GET: Concerts/BuyTicket/5
         [Authorize(Roles = "Viewer")]
         public async Task<IActionResult> BuyTicket(int? id)
         {
@@ -1126,7 +1130,7 @@ namespace ConcertSystemInfrastructure.Controllers
 
             // Передаємо концерт у ViewBag для відображення інформації
             ViewBag.Concert = concert;
-            // Передаємо список доступних квитків для концерту (якщо вони вже створені)
+            // Передаємо список доступних квитків для концерту
             ViewBag.Tickets = await _context.Tickets
                 .Where(t => t.ConcertId == concert.Id && t.Status == "Available")
                 .ToListAsync();
@@ -1134,12 +1138,12 @@ namespace ConcertSystemInfrastructure.Controllers
             // Повертаємо форму для введення даних глядача
             return View(new Spectator());
         }
-
+        // POST: Concerts/BuyTicket/5
         // POST: Concerts/BuyTicket/5
         [HttpPost]
         [ValidateAntiForgeryToken]
         [Authorize(Roles = "Viewer")]
-        public async Task<IActionResult> BuyTicket(int id, [Bind("FullName,Phone,Email")] Spectator spectator, int? ticketId)
+        public async Task<IActionResult> BuyTicket(int id, string phone, int? ticketId)
         {
             // Отримуємо концерт з бази даних разом із квитками
             var concert = await _context.Concerts
@@ -1157,6 +1161,22 @@ namespace ConcertSystemInfrastructure.Controllers
                 return RedirectToAction(nameof(Index));
             }
 
+            // Отримуємо дані автентифікованого користувача
+            var user = await _userManager.GetUserAsync(User);
+            if (user == null)
+            {
+                TempData["ErrorMessage"] = "Користувач не автентифікований.";
+                return RedirectToAction(nameof(Index));
+            }
+
+            // Створюємо об'єкт Spectator із даними користувача
+            var spectator = new Spectator
+            {
+                FullName = user.FullName,
+                Email = user.Email,
+                Phone = phone
+            };
+
             // Починаємо транзакцію для забезпечення цілісності даних
             using var transaction = await _context.Database.BeginTransactionAsync();
             try
@@ -1166,18 +1186,28 @@ namespace ConcertSystemInfrastructure.Controllers
                     .FirstOrDefaultAsync(s => s.Email == spectator.Email);
                 if (existingSpectator == null)
                 {
-                    // Якщо глядача немає, додаємо нового
-                    if (!ModelState.IsValid)
+                    // Перевіряємо валідність номера телефону
+                    if (string.IsNullOrEmpty(phone) || phone.Length != 13 || !phone.StartsWith("+") || !phone.Substring(1).All(char.IsDigit))
                     {
+                        TempData["ErrorMessage"] = "Номер телефону має бути у форматі +380XXXXXXXXX (13 символів, лише цифри після +).";
                         ViewBag.Concert = concert;
                         ViewBag.Tickets = await _context.Tickets
                             .Where(t => t.ConcertId == concert.Id && t.Status == "Available")
                             .ToListAsync();
                         return View(spectator);
                     }
+
+                    // Якщо глядача немає, додаємо нового
                     _context.Spectators.Add(spectator);
                     await _context.SaveChangesAsync();
                     existingSpectator = spectator;
+                }
+                else
+                {
+                    // Оновлюємо номер телефону, якщо глядач уже існує
+                    existingSpectator.Phone = phone;
+                    _context.Update(existingSpectator);
+                    await _context.SaveChangesAsync();
                 }
 
                 // Вибираємо квиток: або за ticketId, або перший доступний
@@ -1234,7 +1264,37 @@ namespace ConcertSystemInfrastructure.Controllers
                 return RedirectToAction(nameof(Index));
             }
         }
+        // GET: Concerts/MyTickets
+        [Authorize(Roles = "Viewer")]
+        public async Task<IActionResult> MyTickets()
+        {
+            // Отримуємо автентифікованого користувача
+            var user = await _userManager.GetUserAsync(User);
+            if (user == null)
+            {
+                return RedirectToAction("Login", "Account");
+            }
 
+            // Знаходимо глядача за email користувача
+            var spectator = await _context.Spectators
+                .FirstOrDefaultAsync(s => s.Email == user.Email);
+            if (spectator == null)
+            {
+                TempData["ErrorMessage"] = "Глядач не знайдений. Спочатку придбайте квиток.";
+                return RedirectToAction(nameof(Index));
+            }
+
+            // Отримуємо всі покупки глядача з пов'язаними даними
+            var purchases = await _context.Purchases
+                .Where(p => p.SpectatorId == spectator.Id)
+                .Include(p => p.PurchaseItems)
+                    .ThenInclude(pi => pi.Ticket)
+                        .ThenInclude(t => t.Concert)
+                            .ThenInclude(c => c.Artist)
+                .ToListAsync();
+
+            return View(purchases);
+        }
         private bool ConcertExists(int id)
         {
             return _context.Concerts.Any(e => e.Id == id);
@@ -2605,58 +2665,85 @@ namespace ConcertSystemInfrastructure.Models
     var tickets = ViewBag.Tickets as List<ConcertSystemDomain.Model.Ticket>;
 }
 
-<h1>Купити квиток на концерт</h1>
+<h1>Купити квиток</h1>
 
-<h4>@concert.Artist.FullName - @concert.Location, @concert.ConcertDate.ToString("dd.MM.yyyy HH:mm")</h4>
-<p>Доступно квитків: @concert.AvailableTickets</p>
+<h4>Концерт: @concert.Artist.FullName - @concert.Location (@concert.ConcertDate.ToString("dd.MM.yyyy HH:mm"))</h4>
 <hr />
 
+<!-- Повідомлення -->
+@if (TempData["ErrorMessage"] != null)
+{
+    <div class="alert alert-danger" role="alert">
+        @TempData["ErrorMessage"]
+    </div>
+}
+
 <div class="row">
-    <div class="col-md-6">
-        <form asp-action="BuyTicket" asp-route-id="@concert.Id">
+    <div class="col-md-4">
+        <form asp-action="BuyTicket" method="post">
+            <input type="hidden" name="id" value="@concert.Id" />
+
+            <!-- Вибір квитка -->
             <div class="form-group">
-                <label asp-for="FullName" class="control-label">Повне ім'я</label>
-                <input asp-for="FullName" class="form-control" />
-                <span asp-validation-for="FullName" class="text-danger"></span>
+                <label for="ticketId">Виберіть квиток:</label>
+                <select name="ticketId" class="form-control" required>
+                    <option value="">-- Виберіть квиток --</option>
+                    @foreach (var ticket in tickets)
+                    {
+                        <option value="@ticket.Id">Ряд: @ticket.Row, Місце: @ticket.SeatNumber, Ціна: @ticket.BasePrice</option>
+                    }
+                </select>
             </div>
+
+            <!-- Поле для номера телефону -->
             <div class="form-group">
-                <label asp-for="Phone" class="control-label">Телефон (опціонально)</label>
+                <label asp-for="Phone" class="control-label"></label>
                 <input asp-for="Phone" class="form-control" />
-                <span asp-validation-for="Phone" class="text-danger"></span>
-            </div>
-            <div class="form-group">
-                <label asp-for="Email" class="control-label">Email</label>
-                <input asp-for="Email" class="form-control" />
-                <span asp-validation-for="Email" class="text-danger"></span>
+                <small id="phone-error" class="form-text text-danger" style="display: none;">Номер телефону має бути у форматі +380XXXXXXXXX (13 символів, лише цифри після +).</small>
+                <span asp-validation-for="Phone" class="text-danger" style="display: none;"></span>
             </div>
 
-            @if (tickets != null && tickets.Any())
-            {
-                <div class="form-group">
-                    <label class="control-label">Виберіть квиток</label>
-                    <select name="ticketId" class="form-control">
-                        @foreach (var ticket in tickets)
-                        {
-                            <option value="@ticket.Id">
-                                Ряд: @ticket.Row, Місце: @ticket.SeatNumber, Ціна: @ticket.BasePrice
-                            </option>
-                        }
-                    </select>
-                </div>
-            }
-
+            <!-- Кнопка "Оплатити через Apple Pay" -->
             <div class="form-group">
-                <input type="submit" value="Купити" class="btn btn-success" />
-                <a asp-action="Index" class="btn btn-secondary">Скасувати</a>
+                <button type="submit" class="btn btn-primary">
+                    <i class="bi bi-apple"></i> Оплатити через Apple Pay
+                </button>
             </div>
         </form>
     </div>
+</div>
+
+<div>
+    <a asp-action="Index">Повернутися до списку концертів</a>
 </div>
 
 @section Scripts {
     @{
         await Html.RenderPartialAsync("_ValidationScriptsPartial");
     }
+    <script>
+        // Отримуємо елементи
+        var phoneInput = document.querySelector('input[name="Phone"]');
+        var phoneError = document.getElementById('phone-error');
+
+        // Додаємо обробник події для відображення помилки
+        phoneInput.addEventListener('input', function () {
+            var phoneValue = this.value;
+            if (phoneValue && (phoneValue.length !== 13 || !phoneValue.startsWith('+') || !phoneValue.substring(1).match(/^\d+$/))) {
+                phoneError.style.display = 'block';
+            } else {
+                phoneError.style.display = 'none';
+            }
+        });
+
+        // Перевіряємо при завантаженні сторінки
+        var validationMessage = document.querySelector('span[data-valmsg-for="Phone"][data-valmsg-replace="true"]');
+        if (validationMessage && validationMessage.textContent) {
+            phoneError.style.display = 'block';
+            phoneError.textContent = validationMessage.textContent;
+            validationMessage.style.display = 'none';
+        }
+    </script>
 }
 
 // ==== Views\Concerts\Create.cshtml ====
@@ -3043,6 +3130,73 @@ namespace ConcertSystemInfrastructure.Models
         }
     </tbody>
 </table>
+
+// ==== Views\Concerts\MyTickets.cshtml ====
+@model IEnumerable<ConcertSystemDomain.Model.Purchase>
+
+@{
+    ViewData["Title"] = "Мої квитки";
+}
+
+<h1>Мої квитки</h1>
+
+<!-- Повідомлення -->
+@if (TempData["SuccessMessage"] != null)
+{
+    <div class="alert alert-success" role="alert">
+        @TempData["SuccessMessage"]
+    </div>
+}
+@if (TempData["ErrorMessage"] != null)
+{
+    <div class="alert alert-danger" role="alert">
+        @TempData["ErrorMessage"]
+    </div>
+}
+
+@if (Model.Any())
+{
+    <table class="table">
+        <thead>
+            <tr>
+                <th>Концерт</th>
+                <th>Артист</th>
+                <th>Дата</th>
+                <th>Місце</th>
+                <th>Ряд</th>
+                <th>Номер місця</th>
+                <th>Ціна</th>
+                <th>Дата покупки</th>
+            </tr>
+        </thead>
+        <tbody>
+            @foreach (var purchase in Model)
+            {
+                foreach (var item in purchase.PurchaseItems)
+                {
+                    <tr>
+                        <td>@item.Ticket.Concert.Location</td>
+                        <td>@item.Ticket.Concert.Artist.FullName</td>
+                        <td>@item.Ticket.Concert.ConcertDate.ToString("dd.MM.yyyy HH:mm")</td>
+                        <td>@item.Ticket.Concert.Location</td>
+                        <td>@item.Ticket.Row</td>
+                        <td>@item.Ticket.SeatNumber</td>
+                        <td>@item.Price</td>
+                        <td>@purchase.PurchaseDate.ToString("dd.MM.yyyy HH:mm")</td>
+                    </tr>
+                }
+            }
+        </tbody>
+    </table>
+}
+else
+{
+    <p>Ви ще не придбали жодного квитка.</p>
+}
+
+<div>
+    <a asp-action="Index" class="btn btn-secondary">Повернутися до списку концертів</a>
+</div>
 
 // ==== Views\Genres\Create.cshtml ====
 @model ConcertSystemDomain.Model.Genre
@@ -3916,6 +4070,7 @@ namespace ConcertSystemInfrastructure.Models
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>@ViewData["Title"] - ConcertSystem</title>
     <link rel="stylesheet" href="~/lib/bootstrap/dist/css/bootstrap.min.css" />
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
     <link rel="stylesheet" href="~/css/site.css" asp-append-version="true" />
 </head>
 <body>
@@ -3982,6 +4137,13 @@ namespace ConcertSystemInfrastructure.Models
                         <li class="nav-item">
                             <a class="nav-link text-dark" asp-area="" asp-controller="Artists" asp-action="Index">Артисти</a>
                         </li>
+                        <!-- Додаємо пункт "Мої квитки" для Viewer -->
+                        @if (User.IsInRole("Viewer"))
+                        {
+                            <li class="nav-item">
+                                <a class="nav-link text-dark" asp-controller="Concerts" asp-action="MyTickets">Мої квитки</a>
+                            </li>
+                        }
                         <!-- Пункти меню тільки для адміністраторів -->
                         @if (User.IsInRole("Admin"))
                         {

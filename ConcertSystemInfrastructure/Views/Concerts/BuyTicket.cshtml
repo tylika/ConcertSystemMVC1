@@ -6,56 +6,83 @@
     var tickets = ViewBag.Tickets as List<ConcertSystemDomain.Model.Ticket>;
 }
 
-<h1>Купити квиток на концерт</h1>
+<h1>Купити квиток</h1>
 
-<h4>@concert.Artist.FullName - @concert.Location, @concert.ConcertDate.ToString("dd.MM.yyyy HH:mm")</h4>
-<p>Доступно квитків: @concert.AvailableTickets</p>
+<h4>Концерт: @concert.Artist.FullName - @concert.Location (@concert.ConcertDate.ToString("dd.MM.yyyy HH:mm"))</h4>
 <hr />
 
+<!-- Повідомлення -->
+@if (TempData["ErrorMessage"] != null)
+{
+    <div class="alert alert-danger" role="alert">
+        @TempData["ErrorMessage"]
+    </div>
+}
+
 <div class="row">
-    <div class="col-md-6">
-        <form asp-action="BuyTicket" asp-route-id="@concert.Id">
+    <div class="col-md-4">
+        <form asp-action="BuyTicket" method="post">
+            <input type="hidden" name="id" value="@concert.Id" />
+
+            <!-- Вибір квитка -->
             <div class="form-group">
-                <label asp-for="FullName" class="control-label">Повне ім'я</label>
-                <input asp-for="FullName" class="form-control" />
-                <span asp-validation-for="FullName" class="text-danger"></span>
+                <label for="ticketId">Виберіть квиток:</label>
+                <select name="ticketId" class="form-control" required>
+                    <option value="">-- Виберіть квиток --</option>
+                    @foreach (var ticket in tickets)
+                    {
+                        <option value="@ticket.Id">Ряд: @ticket.Row, Місце: @ticket.SeatNumber, Ціна: @ticket.BasePrice</option>
+                    }
+                </select>
             </div>
+
+            <!-- Поле для номера телефону -->
             <div class="form-group">
-                <label asp-for="Phone" class="control-label">Телефон (опціонально)</label>
+                <label asp-for="Phone" class="control-label"></label>
                 <input asp-for="Phone" class="form-control" />
-                <span asp-validation-for="Phone" class="text-danger"></span>
-            </div>
-            <div class="form-group">
-                <label asp-for="Email" class="control-label">Email</label>
-                <input asp-for="Email" class="form-control" />
-                <span asp-validation-for="Email" class="text-danger"></span>
+                <small id="phone-error" class="form-text text-danger" style="display: none;">Номер телефону має бути у форматі +380XXXXXXXXX (13 символів, лише цифри після +).</small>
+                <span asp-validation-for="Phone" class="text-danger" style="display: none;"></span>
             </div>
 
-            @if (tickets != null && tickets.Any())
-            {
-                <div class="form-group">
-                    <label class="control-label">Виберіть квиток</label>
-                    <select name="ticketId" class="form-control">
-                        @foreach (var ticket in tickets)
-                        {
-                            <option value="@ticket.Id">
-                                Ряд: @ticket.Row, Місце: @ticket.SeatNumber, Ціна: @ticket.BasePrice
-                            </option>
-                        }
-                    </select>
-                </div>
-            }
-
+            <!-- Кнопка "Оплатити через Apple Pay" -->
             <div class="form-group">
-                <input type="submit" value="Купити" class="btn btn-success" />
-                <a asp-action="Index" class="btn btn-secondary">Скасувати</a>
+                <button type="submit" class="btn btn-primary">
+                    <i class="bi bi-apple"></i> Оплатити через Apple Pay
+                </button>
             </div>
         </form>
     </div>
+</div>
+
+<div>
+    <a asp-action="Index">Повернутися до списку концертів</a>
 </div>
 
 @section Scripts {
     @{
         await Html.RenderPartialAsync("_ValidationScriptsPartial");
     }
+    <script>
+        // Отримуємо елементи
+        var phoneInput = document.querySelector('input[name="Phone"]');
+        var phoneError = document.getElementById('phone-error');
+
+        // Додаємо обробник події для відображення помилки
+        phoneInput.addEventListener('input', function () {
+            var phoneValue = this.value;
+            if (phoneValue && (phoneValue.length !== 13 || !phoneValue.startsWith('+') || !phoneValue.substring(1).match(/^\d+$/))) {
+                phoneError.style.display = 'block';
+            } else {
+                phoneError.style.display = 'none';
+            }
+        });
+
+        // Перевіряємо при завантаженні сторінки
+        var validationMessage = document.querySelector('span[data-valmsg-for="Phone"][data-valmsg-replace="true"]');
+        if (validationMessage && validationMessage.textContent) {
+            phoneError.style.display = 'block';
+            phoneError.textContent = validationMessage.textContent;
+            validationMessage.style.display = 'none';
+        }
+    </script>
 }

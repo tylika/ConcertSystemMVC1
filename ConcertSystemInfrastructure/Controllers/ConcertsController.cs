@@ -7,6 +7,7 @@ using System.Linq;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Mvc.Rendering;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Identity;
 
 namespace ConcertSystemInfrastructure.Controllers
 {
@@ -14,10 +15,12 @@ namespace ConcertSystemInfrastructure.Controllers
     public class ConcertsController : Controller
     {
         private readonly ConcertTicketSystemContext _context;
+        private readonly UserManager<ApplicationUser> _userManager;
 
-        public ConcertsController(ConcertTicketSystemContext context)
+        public ConcertsController(ConcertTicketSystemContext context, UserManager<ApplicationUser> userManager)
         {
             _context = context;
+            _userManager = userManager;
         }
 
         // GET: Concerts
@@ -362,6 +365,7 @@ namespace ConcertSystemInfrastructure.Controllers
             }
         }
         // GET: Concerts/BuyTicket/5
+        // GET: Concerts/BuyTicket/5
         [Authorize(Roles = "Viewer")]
         public async Task<IActionResult> BuyTicket(int? id)
         {
@@ -386,7 +390,7 @@ namespace ConcertSystemInfrastructure.Controllers
 
             // Передаємо концерт у ViewBag для відображення інформації
             ViewBag.Concert = concert;
-            // Передаємо список доступних квитків для концерту (якщо вони вже створені)
+            // Передаємо список доступних квитків для концерту
             ViewBag.Tickets = await _context.Tickets
                 .Where(t => t.ConcertId == concert.Id && t.Status == "Available")
                 .ToListAsync();
@@ -394,12 +398,12 @@ namespace ConcertSystemInfrastructure.Controllers
             // Повертаємо форму для введення даних глядача
             return View(new Spectator());
         }
-
+        // POST: Concerts/BuyTicket/5
         // POST: Concerts/BuyTicket/5
         [HttpPost]
         [ValidateAntiForgeryToken]
         [Authorize(Roles = "Viewer")]
-        public async Task<IActionResult> BuyTicket(int id, [Bind("FullName,Phone,Email")] Spectator spectator, int? ticketId)
+        public async Task<IActionResult> BuyTicket(int id, string phone, int? ticketId)
         {
             // Отримуємо концерт з бази даних разом із квитками
             var concert = await _context.Concerts
@@ -417,6 +421,22 @@ namespace ConcertSystemInfrastructure.Controllers
                 return RedirectToAction(nameof(Index));
             }
 
+            // Отримуємо дані автентифікованого користувача
+            var user = await _userManager.GetUserAsync(User);
+            if (user == null)
+            {
+                TempData["ErrorMessage"] = "Користувач не автентифікований.";
+                return RedirectToAction(nameof(Index));
+            }
+
+            // Створюємо об'єкт Spectator із даними користувача
+            var spectator = new Spectator
+            {
+                FullName = user.FullName,
+                Email = user.Email,
+                Phone = phone
+            };
+
             // Починаємо транзакцію для забезпечення цілісності даних
             using var transaction = await _context.Database.BeginTransactionAsync();
             try
@@ -426,18 +446,28 @@ namespace ConcertSystemInfrastructure.Controllers
                     .FirstOrDefaultAsync(s => s.Email == spectator.Email);
                 if (existingSpectator == null)
                 {
-                    // Якщо глядача немає, додаємо нового
-                    if (!ModelState.IsValid)
+                    // Перевіряємо валідність номера телефону
+                    if (string.IsNullOrEmpty(phone) || phone.Length != 13 || !phone.StartsWith("+") || !phone.Substring(1).All(char.IsDigit))
                     {
+                        TempData["ErrorMessage"] = "Номер телефону має бути у форматі +380XXXXXXXXX (13 символів, лише цифри після +).";
                         ViewBag.Concert = concert;
                         ViewBag.Tickets = await _context.Tickets
                             .Where(t => t.ConcertId == concert.Id && t.Status == "Available")
                             .ToListAsync();
                         return View(spectator);
                     }
+
+                    // Якщо глядача немає, додаємо нового
                     _context.Spectators.Add(spectator);
                     await _context.SaveChangesAsync();
                     existingSpectator = spectator;
+                }
+                else
+                {
+                    // Оновлюємо номер телефону, якщо глядач уже існує
+                    existingSpectator.Phone = phone;
+                    _context.Update(existingSpectator);
+                    await _context.SaveChangesAsync();
                 }
 
                 // Вибираємо квиток: або за ticketId, або перший доступний
@@ -494,7 +524,37 @@ namespace ConcertSystemInfrastructure.Controllers
                 return RedirectToAction(nameof(Index));
             }
         }
+        // GET: Concerts/MyTickets
+        [Authorize(Roles = "Viewer")]
+        public async Task<IActionResult> MyTickets()
+        {
+            // Отримуємо автентифікованого користувача
+            var user = await _userManager.GetUserAsync(User);
+            if (user == null)
+            {
+                return RedirectToAction("Login", "Account");
+            }
 
+            // Знаходимо глядача за email користувача
+            var spectator = await _context.Spectators
+                .FirstOrDefaultAsync(s => s.Email == user.Email);
+            if (spectator == null)
+            {
+                TempData["ErrorMessage"] = "Глядач не знайдений. Спочатку придбайте квиток.";
+                return RedirectToAction(nameof(Index));
+            }
+
+            // Отримуємо всі покупки глядача з пов'язаними даними
+            var purchases = await _context.Purchases
+                .Where(p => p.SpectatorId == spectator.Id)
+                .Include(p => p.PurchaseItems)
+                    .ThenInclude(pi => pi.Ticket)
+                        .ThenInclude(t => t.Concert)
+                            .ThenInclude(c => c.Artist)
+                .ToListAsync();
+
+            return View(purchases);
+        }
         private bool ConcertExists(int id)
         {
             return _context.Concerts.Any(e => e.Id == id);

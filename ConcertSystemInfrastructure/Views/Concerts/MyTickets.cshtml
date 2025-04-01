@@ -1,0 +1,65 @@
+﻿@model IEnumerable<ConcertSystemDomain.Model.Purchase>
+
+@{
+    ViewData["Title"] = "Мої квитки";
+}
+
+<h1>Мої квитки</h1>
+
+<!-- Повідомлення -->
+@if (TempData["SuccessMessage"] != null)
+{
+    <div class="alert alert-success" role="alert">
+        @TempData["SuccessMessage"]
+    </div>
+}
+@if (TempData["ErrorMessage"] != null)
+{
+    <div class="alert alert-danger" role="alert">
+        @TempData["ErrorMessage"]
+    </div>
+}
+
+@if (Model.Any())
+{
+    <table class="table">
+        <thead>
+            <tr>
+                <th>Концерт</th>
+                <th>Артист</th>
+                <th>Дата</th>
+                <th>Місце</th>
+                <th>Ряд</th>
+                <th>Номер місця</th>
+                <th>Ціна</th>
+                <th>Дата покупки</th>
+            </tr>
+        </thead>
+        <tbody>
+            @foreach (var purchase in Model)
+            {
+                foreach (var item in purchase.PurchaseItems)
+                {
+                    <tr>
+                        <td>@item.Ticket.Concert.Location</td>
+                        <td>@item.Ticket.Concert.Artist.FullName</td>
+                        <td>@item.Ticket.Concert.ConcertDate.ToString("dd.MM.yyyy HH:mm")</td>
+                        <td>@item.Ticket.Concert.Location</td>
+                        <td>@item.Ticket.Row</td>
+                        <td>@item.Ticket.SeatNumber</td>
+                        <td>@item.Price</td>
+                        <td>@purchase.PurchaseDate.ToString("dd.MM.yyyy HH:mm")</td>
+                    </tr>
+                }
+            }
+        </tbody>
+    </table>
+}
+else
+{
+    <p>Ви ще не придбали жодного квитка.</p>
+}
+
+<div>
+    <a asp-action="Index" class="btn btn-secondary">Повернутися до списку концертів</a>
+</div>
