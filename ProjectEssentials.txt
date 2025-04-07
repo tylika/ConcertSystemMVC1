@@ -54,6 +54,7 @@ public partial class Artist : Entity
     [Required(ErrorMessage = "Поле Назва є обов'язковим")]
     [Display(Name = "Назва")]
     public string FullName { get; set; } = null!;
+    
     [Required(ErrorMessage = "Поле Соціальні мережі є обов'язковим")]
     public string? SocialMedia { get; set; }
 
@@ -288,12 +289,22 @@ var connectionString = builder.Configuration.GetConnectionString("DefaultConnect
 builder.Services.AddDbContext<ConcertTicketSystemContext>(options =>
     options.UseSqlServer(connectionString));
 
-// ������ Identity
+// ������ Identity � ������� ������������ �������
 builder.Services.AddIdentity<ApplicationUser, IdentityRole>()
     .AddEntityFrameworkStores<ConcertTicketSystemContext>()
-    .AddDefaultTokenProviders();
+    .AddDefaultTokenProviders()
+    .AddErrorDescriber<CustomIdentityErrorDescriber>(); // ������ ��� ���������� �������
 
-// ������������ ��������������
+// ������������ ����� �� ������
+builder.Services.Configure<IdentityOptions>(options =>
+{
+    options.Password.RequireDigit = true;
+    options.Password.RequiredLength = 6;
+    options.Password.RequireNonAlphanumeric = false;
+    options.Password.RequireUppercase = true;
+    options.Password.RequireLowercase = true;
+});
+
 builder.Services.AddAuthentication()
     .AddCookie(options =>
     {
@@ -328,14 +339,11 @@ using (var scope = app.Services.CreateScope())
 {
     var roleManager = scope.ServiceProvider.GetRequiredService<RoleManager<IdentityRole>>();
     var userManager = scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
-
-    // ���������� ������������ �����
     await InitializeRolesAndAdminAsync(roleManager, userManager);
 }
 
 app.Run();
 
-// ���������� ������� ��� ������������ ����� � �����
 async Task InitializeRolesAndAdminAsync(RoleManager<IdentityRole> roleManager, UserManager<ApplicationUser> userManager)
 {
     string[] roleNames = { "Admin", "Viewer" };
@@ -4535,9 +4543,8 @@ else
 
 <h1>Глядачі</h1>
 
-<p>
-    <a asp-action="Create" class="btn btn-primary">Додати нового</a>
-</p>
+
+
 <table class="table">
     <thead>
         <tr>
@@ -4567,7 +4574,7 @@ else
                     @Html.DisplayFor(modelItem => item.Email)
                 </td>
                 <td>
-                    <a asp-action="Edit" asp-route-id="@item.Id" class="btn btn-sm btn-secondary">Редагувати</a> |
+                    
                     <a asp-action="Details" asp-route-id="@item.Id" class="btn btn-sm btn-info">Деталі</a> |
                     <a asp-action="Delete" asp-route-id="@item.Id" class="btn btn-sm btn-danger">Видалити</a>
                 </td>

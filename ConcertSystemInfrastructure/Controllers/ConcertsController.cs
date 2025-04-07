@@ -60,6 +60,7 @@ namespace ConcertSystemInfrastructure.Controllers
         }
 
         // GET: Concerts/Create
+        // GET: Concerts/Create
         [Authorize(Roles = "Admin")]
         public IActionResult Create()
         {
@@ -72,7 +73,7 @@ namespace ConcertSystemInfrastructure.Controllers
         [HttpPost]
         [ValidateAntiForgeryToken]
         [Authorize(Roles = "Admin")]
-        public async Task<IActionResult> Create([Bind("Id,ArtistId,ConcertDate,Location,TotalTickets,AvailableTickets")] Concert concert, int[] GenreIds)
+        public async Task<IActionResult> Create([Bind("Id,ArtistId,ConcertDate,Location,TotalTickets")] Concert concert, int[] GenreIds)
         {
             // Перевірка дати
             DateTime minAllowedDate = DateTime.Now.AddMonths(1);
@@ -81,13 +82,13 @@ namespace ConcertSystemInfrastructure.Controllers
                 ModelState.AddModelError("ConcertDate", "Концерт має бути запланований щонайменше за місяць від поточної дати");
             }
 
-            // Перевірка кількості квитків
-            if (concert.AvailableTickets > concert.TotalTickets)
-            {
-                ModelState.AddModelError("AvailableTickets", "Доступних квитків не може бути більше, ніж загальна кількість квитків");
-            }
+            // Автоматично встановлюємо AvailableTickets = TotalTickets
+            concert.AvailableTickets = concert.TotalTickets;
+
             ModelState.Remove("Artist");
             ModelState.Remove("Location");
+            ModelState.Remove("AvailableTickets"); // Видаляємо AvailableTickets з валідації, бо його не передаємо з форми
+
             if (ModelState.IsValid)
             {
                 // Додаємо концерт
@@ -123,7 +124,7 @@ namespace ConcertSystemInfrastructure.Controllers
             ViewBag.GenreIds = new SelectList(await _context.Genres.Select(g => new { g.Id, g.Name }).ToListAsync(), "Id", "Name");
             return View(concert);
         }
-
+        // GET: Concerts/Edit/5
         // GET: Concerts/Edit/5
         [Authorize(Roles = "Admin")]
         public async Task<IActionResult> Edit(int? id)
@@ -148,7 +149,7 @@ namespace ConcertSystemInfrastructure.Controllers
         [HttpPost]
         [ValidateAntiForgeryToken]
         [Authorize(Roles = "Admin")]
-        public async Task<IActionResult> Edit(int id, [Bind("Id,ArtistId,ConcertDate,Location,TotalTickets,AvailableTickets")] Concert concert, int[] GenreIds)
+        public async Task<IActionResult> Edit(int id, [Bind("Id,ArtistId,ConcertDate,Location,TotalTickets")] Concert concert, int[] GenreIds)
         {
             if (id != concert.Id)
             {
@@ -162,13 +163,10 @@ namespace ConcertSystemInfrastructure.Controllers
                 ModelState.AddModelError("ConcertDate", "Концерт має бути запланований щонайменше за місяць від поточної дати");
             }
 
-            // Перевірка кількості квитків
-            if (concert.AvailableTickets > concert.TotalTickets)
-            {
-                ModelState.AddModelError("AvailableTickets", "Доступних квитків не може бути більше, ніж загальна кількість квитків");
-            }
             ModelState.Remove("Artist");
             ModelState.Remove("Location");
+            ModelState.Remove("AvailableTickets"); // Видаляємо AvailableTickets з валідації
+
             if (ModelState.IsValid)
             {
                 try
@@ -183,8 +181,14 @@ namespace ConcertSystemInfrastructure.Controllers
                         return NotFound();
                     }
 
-                    // Оновлюємо поля концерту
-                    _context.Entry(originalConcert).CurrentValues.SetValues(concert);
+                    // Зберігаємо поточне значення AvailableTickets
+                    int currentAvailableTickets = originalConcert.AvailableTickets;
+
+                    // Оновлюємо поля концерту, крім AvailableTickets
+                    originalConcert.ArtistId = concert.ArtistId;
+                    originalConcert.ConcertDate = concert.ConcertDate;
+                    originalConcert.Location = concert.Location;
+                    originalConcert.TotalTickets = concert.TotalTickets;
 
                     // Синхронізуємо квитки
                     int currentTicketCount = originalConcert.Tickets.Count;
@@ -202,6 +206,7 @@ namespace ConcertSystemInfrastructure.Controllers
                                 Status = "Available"
                             };
                             _context.Tickets.Add(ticket);
+                            currentAvailableTickets++; // Збільшуємо AvailableTickets
                         }
                     }
                     else if (concert.TotalTickets < currentTicketCount)
@@ -216,14 +221,12 @@ namespace ConcertSystemInfrastructure.Controllers
                         foreach (var ticket in ticketsToRemove)
                         {
                             _context.Tickets.Remove(ticket);
+                            currentAvailableTickets--; // Зменшуємо AvailableTickets
                         }
                     }
 
-                    // Перевіряємо, чи AvailableTickets не перевищує нову кількість TotalTickets
-                    if (concert.AvailableTickets > concert.TotalTickets)
-                    {
-                        concert.AvailableTickets = concert.TotalTickets;
-                    }
+                    // Оновлюємо AvailableTickets у концерті
+                    originalConcert.AvailableTickets = currentAvailableTickets;
 
                     await _context.SaveChangesAsync();
 

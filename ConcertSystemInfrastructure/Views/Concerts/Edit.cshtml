@@ -1,46 +1,46 @@
 ﻿@model ConcertSystemDomain.Model.Concert
 
 @{
-    ViewData["Title"] = "Редагувати подію";
+    ViewData["Title"] = "Редагувати концерт";
 }
 
-<h1>Редагувати подію</h1>
+<h1>Редагувати концерт</h1>
 
-<h4>Подія</h4>
+<h4>Концерт</h4>
 <hr />
 <div class="row">
     <div class="col-md-4">
         <form asp-action="Edit">
+            <div asp-validation-summary="ModelOnly" class="text-danger"></div>
             <input type="hidden" asp-for="Id" />
             <div class="form-group">
-                <label class="control-label">Артист</label>
+                <label asp-for="ArtistId" class="control-label"></label>
                 <select asp-for="ArtistId" class="form-control" asp-items="ViewBag.ArtistId"></select>
                 <span asp-validation-for="ArtistId" class="text-danger"></span>
             </div>
             <div class="form-group">
-                <label class="control-label">Дата події</label>
-                <input asp-for="ConcertDate" class="form-control" type="datetime-local" />
-                <small id="concertDateHelp" class="form-text text-muted validation-message">Подія має бути запланована щонайменше за місяць від поточної дати</small>
+                <label asp-for="ConcertDate" class="control-label"></label>
+                <input asp-for="ConcertDate" class="form-control" />
+                <span asp-validation-for="ConcertDate" class="text-danger"></span>
             </div>
             <div class="form-group">
-                <label class="control-label">Місто проведення</label>
+                <label asp-for="Location" class="control-label"></label>
                 <input asp-for="Location" class="form-control" />
                 <span asp-validation-for="Location" class="text-danger"></span>
             </div>
             <div class="form-group">
-                <label class="control-label">Загальна кількість квитків</label>
-                <input asp-for="TotalTickets" class="form-control" type="number" />
+                <label asp-for="TotalTickets" class="control-label"></label>
+                <input asp-for="TotalTickets" class="form-control" />
                 <span asp-validation-for="TotalTickets" class="text-danger"></span>
             </div>
             <div class="form-group">
-                <label class="control-label">Доступні квитки</label>
-                <input asp-for="AvailableTickets" class="form-control" type="number" />
-                <span asp-validation-for="AvailableTickets" class="text-danger"></span>
-            </div>
-            <div class="form-group">
-                <label class="control-label">Жанри</label>
-                <select name="GenreIds" class="form-control" multiple asp-items="ViewBag.GenreIds"></select>
-                <small class="form-text text-muted">Утримуйте Ctrl (Cmd на Mac), щоб вибрати кілька жанрів</small>
+                <label>Жанри</label>
+                <select name="GenreIds" class="form-control" multiple asp-items="ViewBag.GenreIds">
+                    @foreach (var genre in Model.Genres)
+                    {
+                        <option value="@genre.Id" selected>@genre.Name</option>
+                    }
+                </select>
             </div>
             <div class="form-group">
                 <input type="submit" value="Зберегти" class="btn btn-primary" />
@@ -57,35 +57,4 @@
     @{
         await Html.RenderPartialAsync("_ValidationScriptsPartial");
     }
-    <script>
-        $(document).ready(function () {
-            var concertDateInput = $("#ConcertDate");
-            var helpText = $("#concertDateHelp");
-
-            function validateDate() {
-                var selectedDate = new Date(concertDateInput.val());
-                var minAllowedDate = new Date();
-                minAllowedDate.setMonth(minAllowedDate.getMonth() + 1);
-
-                if (selectedDate < minAllowedDate) {
-                    helpText.removeClass("text-muted").addClass("text-danger");
-                    concertDateInput.addClass("is-invalid");
-                } else {
-                    helpText.removeClass("text-danger").addClass("text-muted");
-                    concertDateInput.removeClass("is-invalid");
-                }
-            }
-
-            concertDateInput.on("change", validateDate);
-
-            $("form").on("submit", function (e) {
-                validateDate();
-                if (concertDateInput.hasClass("is-invalid")) {
-                    e.preventDefault();
-                }
-            });
-
-            validateDate();
-        });
-    </script>
 }
