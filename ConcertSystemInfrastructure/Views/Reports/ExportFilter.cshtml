@@ -1,11 +1,11 @@
 ﻿@model dynamic
 @{
-    ViewData["Title"] = "Звіти";
+    ViewData["Title"] = "Експорт з фільтрами";
 }
 
-<h1>Управління звітами</h1>
+<h1>Експорт даних з фільтрами</h1>
 
-<!-- Відображення повідомлень -->
+<!-- Повідомлення -->
 @if (TempData["SuccessMessage"] != null)
 {
     <div class="alert alert-success" role="alert">
@@ -16,65 +16,14 @@
 {
     <div class="alert alert-danger" role="alert">
         @TempData["ErrorMessage"]
-        @if (TempData["ImportErrors"] != null)
-        {
-            <ul>
-                @foreach (var error in Newtonsoft.Json.JsonConvert.DeserializeObject<List<string>>(TempData["ImportErrors"].ToString()))
-                {
-                    <li>@error</li>
-                }
-            </ul>
-        }
     </div>
 }
 
 <div class="row mt-4">
     <div class="col-md-6">
         <div class="card">
-            <div class="card-header">Імпорт даних</div>
+            <div class="card-header">Експорт в Excel</div>
             <div class="card-body">
-                <h5>З Excel</h5>
-                <form asp-action="ImportExcel" method="post" enctype="multipart/form-data">
-                    <div class="form-group">
-                        <label>Виберіть таблицю:</label>
-                        <select name="tableName" class="form-control">
-                            <option value="Concerts">Концерти</option>
-                            <option value="Artist">Виконавці</option>
-                            <option value="Spectators">Глядачі</option>
-                        </select>
-                    </div>
-                    <div class="form-group">
-                        <input type="file" name="file" class="form-control" accept=".xlsx" />
-                    </div>
-                    <button type="submit" class="btn btn-primary">Імпортувати</button>
-                </form>
-
-                <hr>
-
-                <h5>З Word</h5>
-                <form asp-action="ImportDocx" method="post" enctype="multipart/form-data">
-                    <div class="form-group">
-                        <label>Виберіть таблицю:</label>
-                        <select name="tableName" class="form-control">
-                            <option value="Concerts">Концерти</option>
-                            <option value="Artist">Виконавці</option>
-                            <option value="Spectators">Глядачі</option>
-                        </select>
-                    </div>
-                    <div class="form-group">
-                        <input type="file" name="file" class="form-control" accept=".docx" />
-                    </div>
-                    <button type="submit" class="btn btn-primary">Імпортувати</button>
-                </form>
-            </div>
-        </div>
-    </div>
-
-    <div class="col-md-6">
-        <div class="card">
-            <div class="card-header">Експорт даних</div>
-            <div class="card-body">
-                <h5>В Excel</h5>
                 <form asp-action="ExportExcelWithFilter" method="post" id="excelExportForm">
                     <div class="form-group">
                         <label>Виберіть таблицю:</label>
@@ -123,10 +72,14 @@
                     </div>
                     <button type="submit" class="btn btn-primary">Експортувати</button>
                 </form>
+            </div>
+        </div>
+    </div>
 
-                <hr>
-
-                <h5>В Word</h5>
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-header">Експорт в Word</div>
+            <div class="card-body">
                 <form asp-action="ExportDocxWithFilter" method="post" id="wordExportForm">
                     <div class="form-group">
                         <label>Виберіть таблицю:</label>
@@ -178,6 +131,10 @@
             </div>
         </div>
     </div>
+</div>
+
+<div class="mt-3">
+    <a asp-action="Index" class="btn btn-secondary">Повернутися</a>
 </div>
 
 <script>

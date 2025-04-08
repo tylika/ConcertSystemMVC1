@@ -11,6 +11,7 @@ public partial class Artist : Entity
     public string FullName { get; set; } = null!;
     
     [Required(ErrorMessage = "Поле Соціальні мережі є обов'язковим")]
+    [Display(Name = "Соціальні мережі")]
     public string? SocialMedia { get; set; }
 
     public virtual ICollection<Concert> Concerts { get; set; } = new List<Concert>();

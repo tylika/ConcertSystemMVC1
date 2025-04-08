@@ -1,197 +1,206 @@
-﻿using ConcertSystemDomain.Model;
-using DocumentFormat.OpenXml;
+﻿using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
+using ConcertSystemDomain.Model;
+using ConcertSystemInfrastructure;
+using System.Threading.Tasks;
+using System.Linq;
+using System;
 using DocumentFormat.OpenXml.Packaging;
 using DocumentFormat.OpenXml.Wordprocessing;
-using Microsoft.AspNetCore.Mvc;
-using Microsoft.EntityFrameworkCore;
 using OfficeOpenXml;
-using ConcertSystemDomain.Model; // Змінити на ваш namespace
-using System;
-using System.IO;
-using System.Linq;
-using System.Threading.Tasks;
-using Microsoft.AspNetCore.Authorization;
+using DocumentFormat.OpenXml;
 
 namespace ConcertSystemInfrastructure.Controllers
 {
-    [Authorize(Roles = "Admin")]
     public class ReportsController : Controller
     {
-        private readonly ConcertTicketSystemContext _context; 
+        private readonly ConcertTicketSystemContext _context;
 
         public ReportsController(ConcertTicketSystemContext context)
         {
             _context = context;
-            ExcelPackage.LicenseContext = LicenseContext.NonCommercial; 
         }
 
-        
         public IActionResult Index()
         {
+            ViewBag.Artists = _context.Artists.Select(a => a.FullName).Distinct().ToList();
+            ViewBag.Locations = _context.Concerts.Select(c => c.Location).Distinct().ToList();
+            ViewBag.Genres = _context.Genres.Select(g => g.Name).Distinct().ToList();
             return View();
         }
 
-        // POST: Імпорт з Excel
-        [HttpPost]
-        public async Task<IActionResult> ImportExcel(IFormFile file, string tableName)
+        public IActionResult ExportFilter()
         {
-            if (file == null || file.Length == 0)
-            {
-                TempData["ErrorMessage"] = "Будь ласка, виберіть файл для імпорту.";
-                return RedirectToAction(nameof(Index));
-            }
-
-            if (tableName != "Concerts") 
-            {
-                TempData["ErrorMessage"] = "Непідтримувана таблиця.";
-                return RedirectToAction(nameof(Index));
-            }
-
-            using (var stream = file.OpenReadStream())
-            using (var package = new ExcelPackage(stream))
-            {
-                var worksheet = package.Workbook.Worksheets[0];
-                int rowCount = worksheet.Dimension.Rows;
-
-                for (int row = 2; row <= rowCount; row++) // Пропускаємо заголовок
-                {
-                    var concert = new Concert 
-                    {
-                        ArtistId = int.TryParse(worksheet.Cells[row, 1].Value?.ToString(), out int artistId) ? artistId : 0,
-                        ConcertDate = DateTime.TryParse(worksheet.Cells[row, 2].Value?.ToString(), out DateTime date) ? date : DateTime.Now,
-                        Location = worksheet.Cells[row, 3].Value?.ToString(),
-                        TotalTickets = int.TryParse(worksheet.Cells[row, 4].Value?.ToString(), out int total) ? total : 0,
-                        AvailableTickets = int.TryParse(worksheet.Cells[row, 5].Value?.ToString(), out int available) ? available : 0
-                    };
-
-                    if (concert.ArtistId > 0 && !string.IsNullOrEmpty(concert.Location))
-                    {
-                        _context.Concerts.Add(concert); 
-                    }
-                }
-
-                await _context.SaveChangesAsync();
-            }
-
-            TempData["SuccessMessage"] = "Концерти успішно імпортовано!";
-            return RedirectToAction("Index", "Concerts"); 
+            ViewBag.Artists = _context.Artists.Select(a => a.FullName).Distinct().ToList();
+            ViewBag.Locations = _context.Concerts.Select(c => c.Location).Distinct().ToList();
+            ViewBag.Genres = _context.Genres.Select(g => g.Name).Distinct().ToList();
+            return View();
         }
 
-        // GET: Експорт у Excel
-        public async Task<IActionResult> ExportExcel(string tableName)
+        [HttpPost]
+        public async Task<IActionResult> ExportExcelWithFilter(string tableName, string artistFilter, string locationFilter, string genreFilter, DateTime? dateFilter)
         {
-            if (tableName != "Concerts")
-            {
-                return BadRequest("Непідтримувана таблиця.");
-            }
+            ExcelPackage.LicenseContext = LicenseContext.NonCommercial;
 
-            var concerts = await _context.Concerts.ToListAsync(); 
             using (var package = new ExcelPackage())
             {
-                var worksheet = package.Workbook.Worksheets.Add("Concerts");
-                worksheet.Cells[1, 1].Value = "ArtistId";
-                worksheet.Cells[1, 2].Value = "Concert Date";
-                worksheet.Cells[1, 3].Value = "Location";
-                worksheet.Cells[1, 4].Value = "Total Tickets";
-                worksheet.Cells[1, 5].Value = "Available Tickets";
+                var worksheet = package.Workbook.Worksheets.Add(tableName);
 
-                for (int i = 0; i < concerts.Count; i++)
+                switch (tableName)
                 {
-                    worksheet.Cells[i + 2, 1].Value = concerts[i].ArtistId;
-                    worksheet.Cells[i + 2, 2].Value = concerts[i].ConcertDate.ToString("yyyy-MM-dd HH:mm");
-                    worksheet.Cells[i + 2, 3].Value = concerts[i].Location;
-                    worksheet.Cells[i + 2, 4].Value = concerts[i].TotalTickets;
-                    worksheet.Cells[i + 2, 5].Value = concerts[i].AvailableTickets;
+                    case "Concerts":
+                        var concertsQuery = _context.Concerts
+                            .Include(c => c.Artist)
+                            .Include(c => c.Genres)
+                            .AsQueryable();
+
+                        if (!string.IsNullOrEmpty(artistFilter))
+                            concertsQuery = concertsQuery.Where(c => c.Artist.FullName.Contains(artistFilter));
+                        if (!string.IsNullOrEmpty(locationFilter))
+                            concertsQuery = concertsQuery.Where(c => c.Location.Contains(locationFilter));
+                        if (!string.IsNullOrEmpty(genreFilter))
+                            concertsQuery = concertsQuery.Where(c => c.Genres.Any(g => g.Name == genreFilter));
+                        if (dateFilter.HasValue)
+                            concertsQuery = concertsQuery.Where(c => c.ConcertDate.Date == dateFilter.Value.Date);
+
+                        var concerts = await concertsQuery.ToListAsync();
+                        //worksheet.Cells[1, 1].Value = "ID";
+                        worksheet.Cells[1, 2].Value = "Артист";
+                        worksheet.Cells[1, 3].Value = "Дата";
+                        worksheet.Cells[1, 4].Value = "Місто";
+                        worksheet.Cells[1, 5].Value = "Загальна кількість квитків";
+                        worksheet.Cells[1, 6].Value = "Доступні квитки";
+                        worksheet.Cells[1, 7].Value = "Жанри";
+
+                        int row = 2;
+                        foreach (var concert in concerts)
+                        {
+                           // worksheet.Cells[row, 1].Value = concert.Id;
+                            worksheet.Cells[row, 2].Value = concert.Artist.FullName;
+                            worksheet.Cells[row, 3].Value = concert.ConcertDate.ToString("dd.MM.yyyy");
+                            worksheet.Cells[row, 4].Value = concert.Location;
+                            worksheet.Cells[row, 5].Value = concert.TotalTickets;
+                            worksheet.Cells[row, 6].Value = concert.AvailableTickets;
+                            worksheet.Cells[row, 7].Value = string.Join(", ", concert.Genres.Select(g => g.Name));
+                            row++;
+                        }
+                        break;
+
+                    case "Artist":
+                        var artists = await _context.Artists.ToListAsync();
+                        //worksheet.Cells[1, 1].Value = "ID";
+                        worksheet.Cells[1, 2].Value = "Назва";
+                        worksheet.Cells[1, 3].Value = "Соціальні мережі";
+                        row = 2;
+                        foreach (var artist in artists)
+                        {
+                           // worksheet.Cells[row, 1].Value = artist.Id;
+                            worksheet.Cells[row, 2].Value = artist.FullName;
+                            worksheet.Cells[row, 3].Value = artist.SocialMedia;
+                            row++;
+                        }
+                        break;
+
+                    case "Spectators":
+                        var spectators = await _context.Spectators.ToListAsync();
+                       // worksheet.Cells[1, 1].Value = "ID";
+                        worksheet.Cells[1, 2].Value = "ПІБ";
+                        worksheet.Cells[1, 3].Value = "Телефон";
+                        worksheet.Cells[1, 4].Value = "Електронна пошта";
+                        row = 2;
+                        foreach (var spectator in spectators)
+                        {
+                           // worksheet.Cells[row, 1].Value = spectator.Id;
+                            worksheet.Cells[row, 2].Value = spectator.FullName;
+                            worksheet.Cells[row, 3].Value = spectator.Phone;
+                            worksheet.Cells[row, 4].Value = spectator.Email;
+                            row++;
+                        }
+                        break;
+
+                        // Додай інші таблиці за потреби (Purchases, Tickets)
                 }
 
                 worksheet.Cells.AutoFitColumns();
                 var stream = new MemoryStream(package.GetAsByteArray());
-                string fileName = $"ConcertsReport_{DateTime.Now:yyyyMMdd}.xlsx";
-                return File(stream, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", fileName);
+                return File(stream, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", $"{tableName}.xlsx");
             }
         }
 
-        // POST: Імпорт з DOCX
         [HttpPost]
-        public async Task<IActionResult> ImportDocx(IFormFile file, string tableName)
+        public async Task<IActionResult> ExportDocxWithFilter(string tableName, string artistFilter, string locationFilter, string genreFilter, DateTime? dateFilter)
         {
-            if (file == null || file.Length == 0)
+            using (var stream = new MemoryStream())
             {
-                TempData["ErrorMessage"] = "Будь ласка, виберіть файл для імпорту.";
-                return RedirectToAction(nameof(Index));
-            }
-
-            if (tableName != "Concerts")
-            {
-                TempData["ErrorMessage"] = "Непідтримувана таблиця.";
-                return RedirectToAction(nameof(Index));
-            }
-
-            using (var stream = file.OpenReadStream())
-            using (WordprocessingDocument doc = WordprocessingDocument.Open(stream, false))
-            {
-                string text = doc.MainDocumentPart.Document.Body.InnerText;
-                var lines = text.Split(new[] { '\n', '\r' }, StringSplitOptions.RemoveEmptyEntries);
-
-                foreach (var line in lines.Skip(1)) 
+                using (var doc = WordprocessingDocument.Create(stream, WordprocessingDocumentType.Document, true))
                 {
-                    var parts = line.Split('|');
-                    if (parts.Length >= 5)
-                    {
-                        var concert = new Concert 
-                        {
-                            ArtistId = int.TryParse(parts[0].Trim(), out int artistId) ? artistId : 0,
-                            ConcertDate = DateTime.TryParse(parts[1].Trim(), out DateTime date) ? date : DateTime.Now,
-                            Location = parts[2].Trim(),
-                            TotalTickets = int.TryParse(parts[3].Trim(), out int total) ? total : 0,
-                            AvailableTickets = int.TryParse(parts[4].Trim(), out int available) ? available : 0
-                        };
+                    MainDocumentPart mainPart = doc.AddMainDocumentPart();
+                    mainPart.Document = new Document();
+                    Body body = mainPart.Document.AppendChild(new Body());
 
-                        if (concert.ArtistId > 0 && !string.IsNullOrEmpty(concert.Location))
-                        {
-                            _context.Concerts.Add(concert); 
-                        }
+                    switch (tableName)
+                    {
+                        case "Concerts":
+                            var concertsQuery = _context.Concerts
+                                .Include(c => c.Artist)
+                                .Include(c => c.Genres)
+                                .AsQueryable();
+
+                            if (!string.IsNullOrEmpty(artistFilter))
+                                concertsQuery = concertsQuery.Where(c => c.Artist.FullName.Contains(artistFilter));
+                            if (!string.IsNullOrEmpty(locationFilter))
+                                concertsQuery = concertsQuery.Where(c => c.Location.Contains(locationFilter));
+                            if (!string.IsNullOrEmpty(genreFilter))
+                                concertsQuery = concertsQuery.Where(c => c.Genres.Any(g => g.Name == genreFilter));
+                            if (dateFilter.HasValue)
+                                concertsQuery = concertsQuery.Where(c => c.ConcertDate.Date == dateFilter.Value.Date);
+
+                            var concerts = await concertsQuery.ToListAsync();
+                            body.AppendChild(new Paragraph(new Run(new Text("Концерти"))));
+                            foreach (var concert in concerts)
+                            {
+                                //body.AppendChild(new Paragraph(new Run(new Text($"ID: {concert.Id}"))));
+                                body.AppendChild(new Paragraph(new Run(new Text($"Артист: {concert.Artist.FullName}"))));
+                                body.AppendChild(new Paragraph(new Run(new Text($"Дата: {concert.ConcertDate:dd.MM.yyyy}"))));
+                                body.AppendChild(new Paragraph(new Run(new Text($"Місто: {concert.Location}"))));
+                                body.AppendChild(new Paragraph(new Run(new Text($"Квитки: {concert.TotalTickets}/{concert.AvailableTickets}"))));
+                                body.AppendChild(new Paragraph(new Run(new Text($"Жанри: {string.Join(", ", concert.Genres.Select(g => g.Name))}"))));
+                                body.AppendChild(new Paragraph(new Run(new Text(""))));
+                            }
+                            break;
+
+                        case "Artist":
+                            var artists = await _context.Artists.ToListAsync();
+                            body.AppendChild(new Paragraph(new Run(new Text("Виконавці"))));
+                            foreach (var artist in artists)
+                            {
+                               // body.AppendChild(new Paragraph(new Run(new Text($"ID: {artist.Id}"))));
+                                body.AppendChild(new Paragraph(new Run(new Text($"Назва: {artist.FullName}"))));
+                                body.AppendChild(new Paragraph(new Run(new Text($"Соціальні мережі: {artist.SocialMedia}"))));
+                                body.AppendChild(new Paragraph(new Run(new Text(""))));
+                            }
+                            break;
+
+                        case "Spectators":
+                            var spectators = await _context.Spectators.ToListAsync();
+                            body.AppendChild(new Paragraph(new Run(new Text("Глядачі"))));
+                            foreach (var spectator in spectators)
+                            {
+                                //body.AppendChild(new Paragraph(new Run(new Text($"ID: {spectator.Id}"))));
+                                body.AppendChild(new Paragraph(new Run(new Text($"ПІБ: {spectator.FullName}"))));
+                                body.AppendChild(new Paragraph(new Run(new Text($"Телефон: {spectator.Phone}"))));
+                                body.AppendChild(new Paragraph(new Run(new Text($"Електронна пошта: {spectator.Email}"))));
+                                body.AppendChild(new Paragraph(new Run(new Text(""))));
+                            }
+                            break;
+
+                            // Додай інші таблиці за потреби
                     }
                 }
 
-                await _context.SaveChangesAsync();
+                stream.Position = 0;
+                return File(stream, "application/vnd.openxmlformats-officedocument.wordprocessingml.document", $"{tableName}.docx");
             }
-
-            TempData["SuccessMessage"] = "Концерти успішно імпортовано з DOCX!";
-            return RedirectToAction("Index", "Concerts"); 
-        }
-
-        // GET: Експорт у DOCX
-        public async Task<IActionResult> ExportDocx(string tableName)
-        {
-            if (tableName != "Concerts")
-            {
-                return BadRequest("Непідтримувана таблиця.");
-            }
-
-            var concerts = await _context.Concerts.ToListAsync(); 
-            var stream = new MemoryStream();
-            using (WordprocessingDocument doc = WordprocessingDocument.Create(stream, WordprocessingDocumentType.Document))
-            {
-                MainDocumentPart mainPart = doc.AddMainDocumentPart();
-                mainPart.Document = new Document();
-                Body body = mainPart.Document.AppendChild(new Body());
-
-                Paragraph title = body.AppendChild(new Paragraph());
-                Run titleRun = title.AppendChild(new Run());
-                titleRun.AppendChild(new Text("Звіт про концерти"));
-
-                foreach (var concert in concerts)
-                {
-                    Paragraph para = body.AppendChild(new Paragraph());
-                    Run run = para.AppendChild(new Run());
-                    run.AppendChild(new Text($"{concert.ArtistId} | {concert.ConcertDate:yyyy-MM-dd HH:mm} | {concert.Location} | {concert.TotalTickets} | {concert.AvailableTickets}"));
-                }
-            }
-
-            stream.Position = 0;
-            string fileName = $"ConcertsReport_{DateTime.Now:yyyyMMdd}.docx";
-            return File(stream, "application/vnd.openxmlformats-officedocument.wordprocessingml.document", fileName);
         }
     }
 }

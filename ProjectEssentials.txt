@@ -808,6 +808,7 @@ namespace ConcertSystemInfrastructure.Controllers
         }
 
         // GET: Concerts/Create
+        // GET: Concerts/Create
         [Authorize(Roles = "Admin")]
         public IActionResult Create()
         {
@@ -820,7 +821,7 @@ namespace ConcertSystemInfrastructure.Controllers
         [HttpPost]
         [ValidateAntiForgeryToken]
         [Authorize(Roles = "Admin")]
-        public async Task<IActionResult> Create([Bind("Id,ArtistId,ConcertDate,Location,TotalTickets,AvailableTickets")] Concert concert, int[] GenreIds)
+        public async Task<IActionResult> Create([Bind("Id,ArtistId,ConcertDate,Location,TotalTickets")] Concert concert, int[] GenreIds)
         {
             // Перевірка дати
             DateTime minAllowedDate = DateTime.Now.AddMonths(1);
@@ -829,13 +830,13 @@ namespace ConcertSystemInfrastructure.Controllers
                 ModelState.AddModelError("ConcertDate", "Концерт має бути запланований щонайменше за місяць від поточної дати");
             }
 
-            // Перевірка кількості квитків
-            if (concert.AvailableTickets > concert.TotalTickets)
-            {
-                ModelState.AddModelError("AvailableTickets", "Доступних квитків не може бути більше, ніж загальна кількість квитків");
-            }
+            // Автоматично встановлюємо AvailableTickets = TotalTickets
+            concert.AvailableTickets = concert.TotalTickets;
+
             ModelState.Remove("Artist");
             ModelState.Remove("Location");
+            ModelState.Remove("AvailableTickets"); // Видаляємо AvailableTickets з валідації, бо його не передаємо з форми
+
             if (ModelState.IsValid)
             {
                 // Додаємо концерт
@@ -871,7 +872,7 @@ namespace ConcertSystemInfrastructure.Controllers
             ViewBag.GenreIds = new SelectList(await _context.Genres.Select(g => new { g.Id, g.Name }).ToListAsync(), "Id", "Name");
             return View(concert);
         }
-
+        // GET: Concerts/Edit/5
         // GET: Concerts/Edit/5
         [Authorize(Roles = "Admin")]
         public async Task<IActionResult> Edit(int? id)
@@ -896,7 +897,7 @@ namespace ConcertSystemInfrastructure.Controllers
         [HttpPost]
         [ValidateAntiForgeryToken]
         [Authorize(Roles = "Admin")]
-        public async Task<IActionResult> Edit(int id, [Bind("Id,ArtistId,ConcertDate,Location,TotalTickets,AvailableTickets")] Concert concert, int[] GenreIds)
+        public async Task<IActionResult> Edit(int id, [Bind("Id,ArtistId,ConcertDate,Location,TotalTickets")] Concert concert, int[] GenreIds)
         {
             if (id != concert.Id)
             {
@@ -910,13 +911,10 @@ namespace ConcertSystemInfrastructure.Controllers
                 ModelState.AddModelError("ConcertDate", "Концерт має бути запланований щонайменше за місяць від поточної дати");
             }
 
-            // Перевірка кількості квитків
-            if (concert.AvailableTickets > concert.TotalTickets)
-            {
-                ModelState.AddModelError("AvailableTickets", "Доступних квитків не може бути більше, ніж загальна кількість квитків");
-            }
             ModelState.Remove("Artist");
             ModelState.Remove("Location");
+            ModelState.Remove("AvailableTickets"); // Видаляємо AvailableTickets з валідації
+
             if (ModelState.IsValid)
             {
                 try
@@ -931,8 +929,14 @@ namespace ConcertSystemInfrastructure.Controllers
                         return NotFound();
                     }
 
-                    // Оновлюємо поля концерту
-                    _context.Entry(originalConcert).CurrentValues.SetValues(concert);
+                    // Зберігаємо поточне значення AvailableTickets
+                    int currentAvailableTickets = originalConcert.AvailableTickets;
+
+                    // Оновлюємо поля концерту, крім AvailableTickets
+                    originalConcert.ArtistId = concert.ArtistId;
+                    originalConcert.ConcertDate = concert.ConcertDate;
+                    originalConcert.Location = concert.Location;
+                    originalConcert.TotalTickets = concert.TotalTickets;
 
                     // Синхронізуємо квитки
                     int currentTicketCount = originalConcert.Tickets.Count;
@@ -950,6 +954,7 @@ namespace ConcertSystemInfrastructure.Controllers
                                 Status = "Available"
                             };
                             _context.Tickets.Add(ticket);
+                            currentAvailableTickets++; // Збільшуємо AvailableTickets
                         }
                     }
                     else if (concert.TotalTickets < currentTicketCount)
@@ -964,14 +969,12 @@ namespace ConcertSystemInfrastructure.Controllers
                         foreach (var ticket in ticketsToRemove)
                         {
                             _context.Tickets.Remove(ticket);
+                            currentAvailableTickets--; // Зменшуємо AvailableTickets
                         }
                     }
 
-                    // Перевіряємо, чи AvailableTickets не перевищує нову кількість TotalTickets
-                    if (concert.AvailableTickets > concert.TotalTickets)
-                    {
-                        concert.AvailableTickets = concert.TotalTickets;
-                    }
+                    // Оновлюємо AvailableTickets у концерті
+                    originalConcert.AvailableTickets = currentAvailableTickets;
 
                     await _context.SaveChangesAsync();
 
@@ -1833,200 +1836,373 @@ namespace ConcertSystemInfrastructure.Controllers
 
 
 // ==== Controllers\ReportsController.cs ====
-using ConcertSystemDomain.Model;
-using DocumentFormat.OpenXml;
-using DocumentFormat.OpenXml.Packaging;
-using DocumentFormat.OpenXml.Wordprocessing;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using ConcertSystemDomain.Model;
+using DocumentFormat.OpenXml.Packaging;
+using DocumentFormat.OpenXml.Wordprocessing;
 using OfficeOpenXml;
-using ConcertSystemDomain.Model; // Змінити на ваш namespace
-using System;
 using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
-using Microsoft.AspNetCore.Authorization;
+using System.Collections.Generic;
+using System;
+using DocumentFormat.OpenXml;
 
 namespace ConcertSystemInfrastructure.Controllers
 {
-    [Authorize(Roles = "Admin")]
     public class ReportsController : Controller
     {
-        private readonly ConcertTicketSystemContext _context; 
+        private readonly ConcertTicketSystemContext _context;
 
         public ReportsController(ConcertTicketSystemContext context)
         {
             _context = context;
-            ExcelPackage.LicenseContext = LicenseContext.NonCommercial; 
         }
 
-        
-        public IActionResult Index()
+        // GET: Reports/Index
+        public async Task<IActionResult> Index()
         {
+            // Передаємо списки для фільтрів у ViewBag
+            ViewBag.Artists = await _context.Artists.Select(a => a.FullName).Distinct().ToListAsync();
+            ViewBag.Locations = await _context.Concerts.Select(c => c.Location).Distinct().ToListAsync();
             return View();
         }
 
-        // POST: Імпорт з Excel
+        // POST: Reports/ExportExcelWithFilter - Експорт в Excel з урахуванням фільтрів
         [HttpPost]
-        public async Task<IActionResult> ImportExcel(IFormFile file, string tableName)
+        public async Task<IActionResult> ExportExcelWithFilter(string tableName, string artistFilter, string locationFilter)
         {
-            if (file == null || file.Length == 0)
+            if (string.IsNullOrEmpty(tableName))
             {
-                TempData["ErrorMessage"] = "Будь ласка, виберіть файл для імпорту.";
+                TempData["ErrorMessage"] = "Будь ласка, виберіть таблицю для експорту.";
                 return RedirectToAction(nameof(Index));
             }
 
-            if (tableName != "Concerts") 
-            {
-                TempData["ErrorMessage"] = "Непідтримувана таблиця.";
-                return RedirectToAction(nameof(Index));
-            }
+            ExcelPackage.LicenseContext = LicenseContext.NonCommercial;
+            using var package = new ExcelPackage();
+            var worksheet = package.Workbook.Worksheets.Add(tableName);
 
-            using (var stream = file.OpenReadStream())
-            using (var package = new ExcelPackage(stream))
+            if (tableName == "Concerts")
             {
-                var worksheet = package.Workbook.Worksheets[0];
-                int rowCount = worksheet.Dimension.Rows;
+                var concerts = _context.Concerts
+                    .Include(c => c.Artist)
+                    .AsQueryable();
 
-                for (int row = 2; row <= rowCount; row++) // Пропускаємо заголовок
+                if (!string.IsNullOrEmpty(artistFilter))
+                    concerts = concerts.Where(c => c.Artist.FullName == artistFilter);
+
+                if (!string.IsNullOrEmpty(locationFilter))
+                    concerts = concerts.Where(c => c.Location == locationFilter);
+
+                var concertList = await concerts.ToListAsync();
+
+                // Заголовки
+                worksheet.Cells[1, 1].Value = "ID";
+                worksheet.Cells[1, 2].Value = "Артист";
+                worksheet.Cells[1, 3].Value = "Дата концерту";
+                worksheet.Cells[1, 4].Value = "Місто";
+                worksheet.Cells[1, 5].Value = "Загальна кількість квитків";
+                worksheet.Cells[1, 6].Value = "Доступні квитки";
+
+                // Дані
+                for (int i = 0; i < concertList.Count; i++)
                 {
-                    var concert = new Concert 
-                    {
-                        ArtistId = int.TryParse(worksheet.Cells[row, 1].Value?.ToString(), out int artistId) ? artistId : 0,
-                        ConcertDate = DateTime.TryParse(worksheet.Cells[row, 2].Value?.ToString(), out DateTime date) ? date : DateTime.Now,
-                        Location = worksheet.Cells[row, 3].Value?.ToString(),
-                        TotalTickets = int.TryParse(worksheet.Cells[row, 4].Value?.ToString(), out int total) ? total : 0,
-                        AvailableTickets = int.TryParse(worksheet.Cells[row, 5].Value?.ToString(), out int available) ? available : 0
-                    };
-
-                    if (concert.ArtistId > 0 && !string.IsNullOrEmpty(concert.Location))
-                    {
-                        _context.Concerts.Add(concert); 
-                    }
+                    worksheet.Cells[i + 2, 1].Value = concertList[i].Id;
+                    worksheet.Cells[i + 2, 2].Value = concertList[i].Artist.FullName;
+                    worksheet.Cells[i + 2, 3].Value = concertList[i].ConcertDate.ToString("dd.MM.yyyy");
+                    worksheet.Cells[i + 2, 4].Value = concertList[i].Location;
+                    worksheet.Cells[i + 2, 5].Value = concertList[i].TotalTickets;
+                    worksheet.Cells[i + 2, 6].Value = concertList[i].AvailableTickets;
                 }
-
-                await _context.SaveChangesAsync();
             }
+            // Додай аналогічну логіку для інших таблиць, якщо потрібно
 
-            TempData["SuccessMessage"] = "Концерти успішно імпортовано!";
-            return RedirectToAction("Index", "Concerts"); 
+            var stream = new MemoryStream(package.GetAsByteArray());
+            return File(stream, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", $"{tableName}_export.xlsx");
         }
 
-        // GET: Експорт у Excel
-        public async Task<IActionResult> ExportExcel(string tableName)
-        {
-            if (tableName != "Concerts")
-            {
-                return BadRequest("Непідтримувана таблиця.");
-            }
-
-            var concerts = await _context.Concerts.ToListAsync(); 
-            using (var package = new ExcelPackage())
-            {
-                var worksheet = package.Workbook.Worksheets.Add("Concerts");
-                worksheet.Cells[1, 1].Value = "ArtistId";
-                worksheet.Cells[1, 2].Value = "Concert Date";
-                worksheet.Cells[1, 3].Value = "Location";
-                worksheet.Cells[1, 4].Value = "Total Tickets";
-                worksheet.Cells[1, 5].Value = "Available Tickets";
-
-                for (int i = 0; i < concerts.Count; i++)
-                {
-                    worksheet.Cells[i + 2, 1].Value = concerts[i].ArtistId;
-                    worksheet.Cells[i + 2, 2].Value = concerts[i].ConcertDate.ToString("yyyy-MM-dd HH:mm");
-                    worksheet.Cells[i + 2, 3].Value = concerts[i].Location;
-                    worksheet.Cells[i + 2, 4].Value = concerts[i].TotalTickets;
-                    worksheet.Cells[i + 2, 5].Value = concerts[i].AvailableTickets;
-                }
-
-                worksheet.Cells.AutoFitColumns();
-                var stream = new MemoryStream(package.GetAsByteArray());
-                string fileName = $"ConcertsReport_{DateTime.Now:yyyyMMdd}.xlsx";
-                return File(stream, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", fileName);
-            }
-        }
-
-        // POST: Імпорт з DOCX
+        // POST: Reports/ExportDocxWithFilter - Експорт у Word з урахуванням фільтрів
         [HttpPost]
-        public async Task<IActionResult> ImportDocx(IFormFile file, string tableName)
+        public async Task<IActionResult> ExportDocxWithFilter(string tableName, string artistFilter, string locationFilter)
         {
-            if (file == null || file.Length == 0)
+            if (string.IsNullOrEmpty(tableName))
             {
-                TempData["ErrorMessage"] = "Будь ласка, виберіть файл для імпорту.";
+                TempData["ErrorMessage"] = "Будь ласка, виберіть таблицю для експорту.";
                 return RedirectToAction(nameof(Index));
             }
 
-            if (tableName != "Concerts")
+            using var stream = new MemoryStream();
+            using (var wordDoc = WordprocessingDocument.Create(stream, DocumentFormat.OpenXml.WordprocessingDocumentType.Document))
             {
-                TempData["ErrorMessage"] = "Непідтримувана таблиця.";
-                return RedirectToAction(nameof(Index));
-            }
-
-            using (var stream = file.OpenReadStream())
-            using (WordprocessingDocument doc = WordprocessingDocument.Open(stream, false))
-            {
-                string text = doc.MainDocumentPart.Document.Body.InnerText;
-                var lines = text.Split(new[] { '\n', '\r' }, StringSplitOptions.RemoveEmptyEntries);
-
-                foreach (var line in lines.Skip(1)) 
-                {
-                    var parts = line.Split('|');
-                    if (parts.Length >= 5)
-                    {
-                        var concert = new Concert 
-                        {
-                            ArtistId = int.TryParse(parts[0].Trim(), out int artistId) ? artistId : 0,
-                            ConcertDate = DateTime.TryParse(parts[1].Trim(), out DateTime date) ? date : DateTime.Now,
-                            Location = parts[2].Trim(),
-                            TotalTickets = int.TryParse(parts[3].Trim(), out int total) ? total : 0,
-                            AvailableTickets = int.TryParse(parts[4].Trim(), out int available) ? available : 0
-                        };
-
-                        if (concert.ArtistId > 0 && !string.IsNullOrEmpty(concert.Location))
-                        {
-                            _context.Concerts.Add(concert); 
-                        }
-                    }
-                }
-
-                await _context.SaveChangesAsync();
-            }
-
-            TempData["SuccessMessage"] = "Концерти успішно імпортовано з DOCX!";
-            return RedirectToAction("Index", "Concerts"); 
-        }
-
-        // GET: Експорт у DOCX
-        public async Task<IActionResult> ExportDocx(string tableName)
-        {
-            if (tableName != "Concerts")
-            {
-                return BadRequest("Непідтримувана таблиця.");
-            }
-
-            var concerts = await _context.Concerts.ToListAsync(); 
-            var stream = new MemoryStream();
-            using (WordprocessingDocument doc = WordprocessingDocument.Create(stream, WordprocessingDocumentType.Document))
-            {
-                MainDocumentPart mainPart = doc.AddMainDocumentPart();
+                var mainPart = wordDoc.AddMainDocumentPart();
                 mainPart.Document = new Document();
-                Body body = mainPart.Document.AppendChild(new Body());
+                var body = mainPart.Document.AppendChild(new Body());
 
-                Paragraph title = body.AppendChild(new Paragraph());
-                Run titleRun = title.AppendChild(new Run());
-                titleRun.AppendChild(new Text("Звіт про концерти"));
-
-                foreach (var concert in concerts)
+                if (tableName == "Concerts")
                 {
-                    Paragraph para = body.AppendChild(new Paragraph());
-                    Run run = para.AppendChild(new Run());
-                    run.AppendChild(new Text($"{concert.ArtistId} | {concert.ConcertDate:yyyy-MM-dd HH:mm} | {concert.Location} | {concert.TotalTickets} | {concert.AvailableTickets}"));
+                    var concerts = _context.Concerts
+                        .Include(c => c.Artist)
+                        .AsQueryable();
+
+                    if (!string.IsNullOrEmpty(artistFilter))
+                        concerts = concerts.Where(c => c.Artist.FullName == artistFilter);
+
+                    if (!string.IsNullOrEmpty(locationFilter))
+                        concerts = concerts.Where(c => c.Location == locationFilter);
+
+                    var concertList = await concerts.ToListAsync();
+
+                    var table = new Table();
+                    var props = new TableProperties(
+                        new TableBorders(
+                            new TopBorder { Val = new EnumValue<BorderValues>(BorderValues.Single), Size = 12 },
+                            new BottomBorder { Val = new EnumValue<BorderValues>(BorderValues.Single), Size = 12 },
+                            new LeftBorder { Val = new EnumValue<BorderValues>(BorderValues.Single), Size = 12 },
+                            new RightBorder { Val = new EnumValue<BorderValues>(BorderValues.Single), Size = 12 },
+                            new InsideHorizontalBorder { Val = new EnumValue<BorderValues>(BorderValues.Single), Size = 12 },
+                            new InsideVerticalBorder { Val = new EnumValue<BorderValues>(BorderValues.Single), Size = 12 }
+                        )
+                    );
+                    table.AppendChild(props);
+
+                    // Заголовки
+                    var headerRow = new TableRow();
+                    headerRow.Append(
+                        new TableCell(new Paragraph(new Run(new Text("ID")))),
+                        new TableCell(new Paragraph(new Run(new Text("Артист")))),
+                        new TableCell(new Paragraph(new Run(new Text("Дата концерту")))),
+                        new TableCell(new Paragraph(new Run(new Text("Місто")))),
+                        new TableCell(new Paragraph(new Run(new Text("Загальна кількість квитків")))),
+                        new TableCell(new Paragraph(new Run(new Text("Доступні квитки"))))
+                    );
+                    table.AppendChild(headerRow);
+
+                    // Дані
+                    foreach (var concert in concertList)
+                    {
+                        var row = new TableRow();
+                        row.Append(
+                            new TableCell(new Paragraph(new Run(new Text(concert.Id.ToString())))),
+                            new TableCell(new Paragraph(new Run(new Text(concert.Artist.FullName)))),
+                            new TableCell(new Paragraph(new Run(new Text(concert.ConcertDate.ToString("dd.MM.yyyy"))))),
+                            new TableCell(new Paragraph(new Run(new Text(concert.Location)))),
+                            new TableCell(new Paragraph(new Run(new Text(concert.TotalTickets.ToString())))),
+                            new TableCell(new Paragraph(new Run(new Text(concert.AvailableTickets.ToString()))))
+                        );
+                        table.AppendChild(row);
+                    }
+
+                    body.Append(table);
                 }
             }
 
             stream.Position = 0;
-            string fileName = $"ConcertsReport_{DateTime.Now:yyyyMMdd}.docx";
-            return File(stream, "application/vnd.openxmlformats-officedocument.wordprocessingml.document", fileName);
+            return File(stream, "application/vnd.openxmlformats-officedocument.wordprocessingml.document", $"{tableName}_export.docx");
+        }
+
+        // POST: Reports/ImportExcel
+        [HttpPost]
+        public async Task<IActionResult> ImportExcel(string tableName, IFormFile file)
+        {
+            if (file == null || file.Length == 0)
+            {
+                TempData["ErrorMessage"] = "Будь ласка, виберіть файл для імпорту.";
+                return RedirectToAction(nameof(Index));
+            }
+
+            ExcelPackage.LicenseContext = LicenseContext.NonCommercial;
+            var errors = new List<string>(); // Змінюємо на List<string>
+
+            using var stream = new MemoryStream();
+            await file.CopyToAsync(stream);
+            using var package = new ExcelPackage(stream);
+            var worksheet = package.Workbook.Worksheets.FirstOrDefault();
+
+            if (worksheet == null)
+            {
+                TempData["ErrorMessage"] = "Файл Excel не містить жодного аркуша.";
+                return RedirectToAction(nameof(Index));
+            }
+
+            if (tableName == "Concerts")
+            {
+                for (int row = 2; row <= worksheet.Dimension?.Rows; row++)
+                {
+                    try
+                    {
+                        if (worksheet.Dimension == null)
+                        {
+                            errors.Add($"Рядок {row}: Файл Excel порожній або пошкоджений.");
+                            continue;
+                        }
+
+                        var artistName = worksheet.Cells[row, 2].Text;
+                        var concertDateStr = worksheet.Cells[row, 3].Text;
+                        var location = worksheet.Cells[row, 4].Text;
+                        var totalTicketsStr = worksheet.Cells[row, 5].Text;
+
+                        // Валідація
+                        var artist = await _context.Artists.FirstOrDefaultAsync(a => a.FullName == artistName);
+                        if (artist == null)
+                        {
+                            errors.Add($"Рядок {row}: Артист '{artistName}' не знайдений у базі даних.");
+                            continue;
+                        }
+
+                        if (!DateTime.TryParse(concertDateStr, out var concertDate) || concertDate < DateTime.Now.AddMonths(1))
+                        {
+                            errors.Add($"Рядок {row}: Невірний формат дати або концерт запланований раніше, ніж за місяць від поточної дати.");
+                            continue;
+                        }
+
+                        if (string.IsNullOrEmpty(location))
+                        {
+                            errors.Add($"Рядок {row}: Місто проведення не вказано.");
+                            continue;
+                        }
+
+                        if (!int.TryParse(totalTicketsStr, out var totalTickets) || totalTickets <= 0)
+                        {
+                            errors.Add($"Рядок {row}: Загальна кількість квитків має бути числом більше 0.");
+                            continue;
+                        }
+
+                        var concert = new Concert
+                        {
+                            ArtistId = artist.Id,
+                            ConcertDate = concertDate,
+                            Location = location,
+                            TotalTickets = totalTickets,
+                            AvailableTickets = totalTickets
+                        };
+                        _context.Concerts.Add(concert);
+                    }
+                    catch (Exception ex)
+                    {
+                        errors.Add($"Рядок {row}: Помилка обробки рядка: {ex.Message}");
+                    }
+                }
+
+                if (errors.Count == 0)
+                {
+                    await _context.SaveChangesAsync();
+                    TempData["SuccessMessage"] = "Дані успішно імпортовано!";
+                }
+                else
+                {
+                    TempData["ErrorMessage"] = "Під час імпорту виникли помилки.";
+                    TempData["ImportErrors"] = Newtonsoft.Json.JsonConvert.SerializeObject(errors);
+                }
+            }
+
+            return RedirectToAction(nameof(Index));
+        }
+
+        // POST: Reports/ImportDocx
+        [HttpPost]
+        public async Task<IActionResult> ImportDocx(string tableName, IFormFile file)
+        {
+            if (file == null || file.Length == 0)
+            {
+                TempData["ErrorMessage"] = "Будь ласка, виберіть файл для імпорту.";
+                return RedirectToAction(nameof(Index));
+            }
+
+            var errors = new List<string>(); // Змінюємо на List<string>
+
+            using var stream = new MemoryStream();
+            await file.CopyToAsync(stream);
+            using var wordDoc = WordprocessingDocument.Open(stream, false);
+            var body = wordDoc.MainDocumentPart?.Document?.Body;
+            if (body == null)
+            {
+                TempData["ErrorMessage"] = "Документ Word порожній або пошкоджений.";
+                return RedirectToAction(nameof(Index));
+            }
+
+            var table = body.Elements<Table>().FirstOrDefault();
+            if (table == null)
+            {
+                TempData["ErrorMessage"] = "У документі відсутня таблиця для імпорту.";
+                return RedirectToAction(nameof(Index));
+            }
+
+            if (tableName == "Concerts")
+            {
+                int rowIndex = 1; // Пропускаємо заголовок
+                foreach (var row in table.Elements<TableRow>().Skip(1))
+                {
+                    rowIndex++;
+                    try
+                    {
+                        var cells = row.Elements<TableCell>().ToList();
+                        if (cells.Count < 5)
+                        {
+                            errors.Add($"Рядок {rowIndex}: Недостатньо стовпців у рядку.");
+                            continue;
+                        }
+
+                        var artistName = cells[1].InnerText;
+                        var concertDateStr = cells[2].InnerText;
+                        var location = cells[3].InnerText;
+                        var totalTicketsStr = cells[4].InnerText;
+
+                        // Валідація
+                        var artist = await _context.Artists.FirstOrDefaultAsync(a => a.FullName == artistName);
+                        if (artist == null)
+                        {
+                            errors.Add($"Рядок {rowIndex}: Артист '{artistName}' не знайдений у базі даних.");
+                            continue;
+                        }
+
+                        if (!DateTime.TryParse(concertDateStr, out var concertDate) || concertDate < DateTime.Now.AddMonths(1))
+                        {
+                            errors.Add($"Рядок {rowIndex}: Невірний формат дати або концерт запланований раніше, ніж за місяць від поточної дати.");
+                            continue;
+                        }
+
+                        if (string.IsNullOrEmpty(location))
+                        {
+                            errors.Add($"Рядок {rowIndex}: Місто проведення не вказано.");
+                            continue;
+                        }
+
+                        if (!int.TryParse(totalTicketsStr, out var totalTickets) || totalTickets <= 0)
+                        {
+                            errors.Add($"Рядок {rowIndex}: Загальна кількість квитків має бути числом більше 0.");
+                            continue;
+                        }
+
+                        var concert = new Concert
+                        {
+                            ArtistId = artist.Id,
+                            ConcertDate = concertDate,
+                            Location = location,
+                            TotalTickets = totalTickets,
+                            AvailableTickets = totalTickets
+                        };
+                        _context.Concerts.Add(concert);
+                    }
+                    catch (Exception ex)
+                    {
+                        errors.Add($"Рядок {rowIndex}: Помилка обробки рядка: {ex.Message}");
+                    }
+                }
+
+                if (errors.Count == 0)
+                {
+                    await _context.SaveChangesAsync();
+                    TempData["SuccessMessage"] = "Дані успішно імпортовано!";
+                }
+                else
+                {
+                    TempData["ErrorMessage"] = "Під час імпорту виникли помилки.";
+                    TempData["ImportErrors"] = Newtonsoft.Json.JsonConvert.SerializeObject(errors);
+                }
+            }
+
+            return RedirectToAction(nameof(Index));
         }
     }
 }
@@ -2758,63 +2934,40 @@ namespace ConcertSystemInfrastructure.Models
 @model ConcertSystemDomain.Model.Concert
 
 @{
-    ViewData["Title"] = "Додати подію";
+    ViewData["Title"] = "Додати концерт";
 }
 
-<!-- Тимчасовий стиль для прокручування -->
-<style>
-    html, body {
-        height: 100%;
-        overflow-y: auto;
-    }
+<h1>Додати концерт</h1>
 
-    .row {
-        min-height: 100%;
-    }
-
-    .validation-message {
-        font-size: 0.9em;
-        margin-top: 5px;
-        display: block;
-    }
-</style>
-
-<h1>Додати подію</h1>
-
-<h4>Подія</h4>
+<h4>Концерт</h4>
 <hr />
 <div class="row">
-    <div class="col-md-6">
+    <div class="col-md-4">
         <form asp-action="Create">
+            <div asp-validation-summary="ModelOnly" class="text-danger"></div>
             <div class="form-group">
-                <label class="control-label">Артист</label>
+                <label asp-for="ArtistId" class="control-label"></label>
                 <select asp-for="ArtistId" class="form-control" asp-items="ViewBag.ArtistId"></select>
                 <span asp-validation-for="ArtistId" class="text-danger"></span>
             </div>
             <div class="form-group">
-                <label class="control-label">Дата події</label>
-                <input asp-for="ConcertDate" class="form-control" type="datetime-local" />
-                <small id="concertDateHelp" class="form-text text-muted validation-message">Подія має бути запланована щонайменше за місяць від поточної дати</small>
+                <label asp-for="ConcertDate" class="control-label"></label>
+                <input asp-for="ConcertDate" class="form-control" />
+                <span asp-validation-for="ConcertDate" class="text-danger"></span>
             </div>
             <div class="form-group">
-                <label class="control-label">Місто проведення</label>
+                <label asp-for="Location" class="control-label"></label>
                 <input asp-for="Location" class="form-control" />
                 <span asp-validation-for="Location" class="text-danger"></span>
             </div>
             <div class="form-group">
-                <label class="control-label">Загальна кількість квитків</label>
-                <input asp-for="TotalTickets" class="form-control" type="number" />
+                <label asp-for="TotalTickets" class="control-label"></label>
+                <input asp-for="TotalTickets" class="form-control" />
                 <span asp-validation-for="TotalTickets" class="text-danger"></span>
             </div>
             <div class="form-group">
-                <label class="control-label">Доступні квитки</label>
-                <input asp-for="AvailableTickets" class="form-control" type="number" />
-                <span asp-validation-for="AvailableTickets" class="text-danger"></span>
-            </div>
-            <div class="form-group">
-                <label class="control-label">Жанри</label>
+                <label>Жанри</label>
                 <select name="GenreIds" class="form-control" multiple asp-items="ViewBag.GenreIds"></select>
-                <small class="form-text text-muted">Утримуйте Ctrl (Cmd на Mac), щоб вибрати кілька жанрів</small>
             </div>
             <div class="form-group">
                 <input type="submit" value="Додати" class="btn btn-primary" />
@@ -2831,35 +2984,6 @@ namespace ConcertSystemInfrastructure.Models
     @{
         await Html.RenderPartialAsync("_ValidationScriptsPartial");
     }
-    <script>
-        $(document).ready(function () {
-            var concertDateInput = $("#ConcertDate");
-            var helpText = $("#concertDateHelp");
-
-            function validateDate() {
-                var selectedDate = new Date(concertDateInput.val());
-                var minAllowedDate = new Date();
-                minAllowedDate.setMonth(minAllowedDate.getMonth() + 1);
-
-                if (selectedDate < minAllowedDate) {
-                    helpText.removeClass("text-muted").addClass("text-danger");
-                    concertDateInput.addClass("is-invalid");
-                } else {
-                    helpText.removeClass("text-danger").addClass("text-muted");
-                    concertDateInput.removeClass("is-invalid");
-                }
-            }
-
-            concertDateInput.on("change", validateDate);
-
-            $("form").on("submit", function (e) {
-                validateDate();
-                if (concertDateInput.hasClass("is-invalid")) {
-                    e.preventDefault();
-                }
-            });
-        });
-    </script>
 }
 
 // ==== Views\Concerts\Delete.cshtml ====
@@ -2984,46 +3108,46 @@ namespace ConcertSystemInfrastructure.Models
 @model ConcertSystemDomain.Model.Concert
 
 @{
-    ViewData["Title"] = "Редагувати подію";
+    ViewData["Title"] = "Редагувати концерт";
 }
 
-<h1>Редагувати подію</h1>
+<h1>Редагувати концерт</h1>
 
-<h4>Подія</h4>
+<h4>Концерт</h4>
 <hr />
 <div class="row">
     <div class="col-md-4">
         <form asp-action="Edit">
+            <div asp-validation-summary="ModelOnly" class="text-danger"></div>
             <input type="hidden" asp-for="Id" />
             <div class="form-group">
-                <label class="control-label">Артист</label>
+                <label asp-for="ArtistId" class="control-label"></label>
                 <select asp-for="ArtistId" class="form-control" asp-items="ViewBag.ArtistId"></select>
                 <span asp-validation-for="ArtistId" class="text-danger"></span>
             </div>
             <div class="form-group">
-                <label class="control-label">Дата події</label>
-                <input asp-for="ConcertDate" class="form-control" type="datetime-local" />
-                <small id="concertDateHelp" class="form-text text-muted validation-message">Подія має бути запланована щонайменше за місяць від поточної дати</small>
+                <label asp-for="ConcertDate" class="control-label"></label>
+                <input asp-for="ConcertDate" class="form-control" />
+                <span asp-validation-for="ConcertDate" class="text-danger"></span>
             </div>
             <div class="form-group">
-                <label class="control-label">Місто проведення</label>
+                <label asp-for="Location" class="control-label"></label>
                 <input asp-for="Location" class="form-control" />
                 <span asp-validation-for="Location" class="text-danger"></span>
             </div>
             <div class="form-group">
-                <label class="control-label">Загальна кількість квитків</label>
-                <input asp-for="TotalTickets" class="form-control" type="number" />
+                <label asp-for="TotalTickets" class="control-label"></label>
+                <input asp-for="TotalTickets" class="form-control" />
                 <span asp-validation-for="TotalTickets" class="text-danger"></span>
             </div>
             <div class="form-group">
-                <label class="control-label">Доступні квитки</label>
-                <input asp-for="AvailableTickets" class="form-control" type="number" />
-                <span asp-validation-for="AvailableTickets" class="text-danger"></span>
-            </div>
-            <div class="form-group">
-                <label class="control-label">Жанри</label>
-                <select name="GenreIds" class="form-control" multiple asp-items="ViewBag.GenreIds"></select>
-                <small class="form-text text-muted">Утримуйте Ctrl (Cmd на Mac), щоб вибрати кілька жанрів</small>
+                <label>Жанри</label>
+                <select name="GenreIds" class="form-control" multiple asp-items="ViewBag.GenreIds">
+                    @foreach (var genre in Model.Genres)
+                    {
+                        <option value="@genre.Id" selected>@genre.Name</option>
+                    }
+                </select>
             </div>
             <div class="form-group">
                 <input type="submit" value="Зберегти" class="btn btn-primary" />
@@ -3040,37 +3164,6 @@ namespace ConcertSystemInfrastructure.Models
     @{
         await Html.RenderPartialAsync("_ValidationScriptsPartial");
     }
-    <script>
-        $(document).ready(function () {
-            var concertDateInput = $("#ConcertDate");
-            var helpText = $("#concertDateHelp");
-
-            function validateDate() {
-                var selectedDate = new Date(concertDateInput.val());
-                var minAllowedDate = new Date();
-                minAllowedDate.setMonth(minAllowedDate.getMonth() + 1);
-
-                if (selectedDate < minAllowedDate) {
-                    helpText.removeClass("text-muted").addClass("text-danger");
-                    concertDateInput.addClass("is-invalid");
-                } else {
-                    helpText.removeClass("text-danger").addClass("text-muted");
-                    concertDateInput.removeClass("is-invalid");
-                }
-            }
-
-            concertDateInput.on("change", validateDate);
-
-            $("form").on("submit", function (e) {
-                validateDate();
-                if (concertDateInput.hasClass("is-invalid")) {
-                    e.preventDefault();
-                }
-            });
-
-            validateDate();
-        });
-    </script>
 }
 
 // ==== Views\Concerts\Index.cshtml ====
@@ -3935,7 +4028,118 @@ else
 </table>
 
 
+// ==== Views\Reports\ExportFilter.cshtml ====
+@model dynamic
+@{
+    ViewData["Title"] = "Експорт з фільтрами";
+}
+
+<h1>Експорт даних з фільтрами</h1>
+
+<!-- Повідомлення -->
+@if (TempData["SuccessMessage"] != null)
+{
+    <div class="alert alert-success" role="alert">
+        @TempData["SuccessMessage"]
+    </div>
+}
+@if (TempData["ErrorMessage"] != null)
+{
+    <div class="alert alert-danger" role="alert">
+        @TempData["ErrorMessage"]
+    </div>
+}
+
+<div class="row mt-4">
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-header">Експорт в Excel</div>
+            <div class="card-body">
+                <form asp-action="ExportExcelWithFilter" method="post">
+                    <div class="form-group">
+                        <label>Виберіть таблицю:</label>
+                        <select name="tableName" class="form-control">
+                            <option value="Concerts">Концерти</option>
+                            <option value="Artist">Виконавці</option>
+                            <option value="Purchases">Покупки</option>
+                            <option value="Spectators">Глядачі</option>
+                            <option value="Tickets">Квитки</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label>Фільтр за артистом:</label>
+                        <select name="artistFilter" class="form-control">
+                            <option value="">Без фільтру</option>
+                            @foreach (var artist in ViewBag.Artists)
+                            {
+                                <option value="@artist">@artist</option>
+                            }
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label>Фільтр за містом:</label>
+                        <select name="locationFilter" class="form-control">
+                            <option value="">Без фільтру</option>
+                            @foreach (var location in ViewBag.Locations)
+                            {
+                                <option value="@location">@location</option>
+                            }
+                        </select>
+                    </div>
+                    <button type="submit" class="btn btn-primary">Експортувати</button>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-header">Експорт в Word</div>
+            <div class="card-body">
+                <form asp-action="ExportDocxWithFilter" method="post">
+                    <div class="form-group">
+                        <label>Виберіть таблицю:</label>
+                        <select name="tableName" class="form-control">
+                            <option value="Concerts">Концерти</option>
+                            <option value="Artist">Виконавці</option>
+                            <option value="Purchases">Покупки</option>
+                            <option value="Spectators">Глядачі</option>
+                            <option value="Tickets">Квитки</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label>Фільтр за артистом:</label>
+                        <select name="artistFilter" class="form-control">
+                            <option value="">Без фільтру</option>
+                            @foreach (var artist in ViewBag.Artists)
+                            {
+                                <option value="@artist">@artist</option>
+                            }
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label>Фільтр за містом:</label>
+                        <select name="locationFilter" class="form-control">
+                            <option value="">Без фільтру</option>
+                            @foreach (var location in ViewBag.Locations)
+                            {
+                                <option value="@location">@location</option>
+                            }
+                        </select>
+                    </div>
+                    <button type="submit" class="btn btn-primary">Експортувати</button>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="mt-3">
+    <a asp-action="Index" class="btn btn-secondary">Повернутися</a>
+</div>
+
 // ==== Views\Reports\Index.cshtml ====
+@model dynamic
 @{
     ViewData["Title"] = "Звіти";
 }
@@ -3945,7 +4149,7 @@ else
 <!-- Відображення повідомлень -->
 @if (TempData["SuccessMessage"] != null)
 {
-    <div class="alert" role="alert">
+    <div class="alert alert-success" role="alert">
         @TempData["SuccessMessage"]
     </div>
 }
@@ -3953,6 +4157,15 @@ else
 {
     <div class="alert alert-danger" role="alert">
         @TempData["ErrorMessage"]
+        @if (TempData["ImportErrors"] != null)
+        {
+            <ul>
+                @foreach (var error in Newtonsoft.Json.JsonConvert.DeserializeObject<List<string>>(TempData["ImportErrors"].ToString()))
+                {
+                    <li>@error</li>
+                }
+            </ul>
+        }
     </div>
 }
 
@@ -3976,7 +4189,7 @@ else
                     <div class="form-group">
                         <input type="file" name="file" class="form-control" accept=".xlsx" />
                     </div>
-                    <button type="submit" class="btn">Імпортувати</button>
+                    <button type="submit" class="btn btn-primary">Імпортувати</button>
                 </form>
 
                 <hr>
@@ -3996,7 +4209,7 @@ else
                     <div class="form-group">
                         <input type="file" name="file" class="form-control" accept=".docx" />
                     </div>
-                    <button type="submit" class="btn">Імпортувати</button>
+                    <button type="submit" class="btn btn-primary">Імпортувати</button>
                 </form>
             </div>
         </div>
@@ -4007,7 +4220,7 @@ else
             <div class="card-header">Експорт даних</div>
             <div class="card-body">
                 <h5>В Excel</h5>
-                <form asp-action="ExportExcel" method="get">
+                <form asp-action="ExportExcelWithFilter" method="post">
                     <div class="form-group">
                         <label>Виберіть таблицю:</label>
                         <select name="tableName" class="form-control">
@@ -4018,13 +4231,33 @@ else
                             <option value="Tickets">Квитки</option>
                         </select>
                     </div>
-                    <button type="submit" class="btn">Експортувати</button>
+                    <div class="form-group">
+                        <label>Фільтр за артистом:</label>
+                        <select name="artistFilter" class="form-control">
+                            <option value="">Без фільтру</option>
+                            @foreach (var artist in ViewBag.Artists)
+                            {
+                                <option value="@artist">@artist</option>
+                            }
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label>Фільтр за містом:</label>
+                        <select name="locationFilter" class="form-control">
+                            <option value="">Без фільтру</option>
+                            @foreach (var location in ViewBag.Locations)
+                            {
+                                <option value="@location">@location</option>
+                            }
+                        </select>
+                    </div>
+                    <button type="submit" class="btn btn-primary">Експортувати</button>
                 </form>
 
                 <hr>
 
                 <h5>В Word</h5>
-                <form asp-action="ExportDocx" method="get">
+                <form asp-action="ExportDocxWithFilter" method="post">
                     <div class="form-group">
                         <label>Виберіть таблицю:</label>
                         <select name="tableName" class="form-control">
@@ -4035,7 +4268,27 @@ else
                             <option value="Tickets">Квитки</option>
                         </select>
                     </div>
-                    <button type="submit" class="btn">Експортувати</button>
+                    <div class="form-group">
+                        <label>Фільтр за артистом:</label>
+                        <select name="artistFilter" class="form-control">
+                            <option value="">Без фільтру</option>
+                            @foreach (var artist in ViewBag.Artists)
+                            {
+                                <option value="@artist">@artist</option>
+                            }
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label>Фільтр за містом:</label>
+                        <select name="locationFilter" class="form-control">
+                            <option value="">Без фільтру</option>
+                            @foreach (var location in ViewBag.Locations)
+                            {
+                                <option value="@location">@location</option>
+                            }
+                        </select>
+                    </div>
+                    <button type="submit" class="btn btn-primary">Експортувати</button>
                 </form>
             </div>
         </div>
