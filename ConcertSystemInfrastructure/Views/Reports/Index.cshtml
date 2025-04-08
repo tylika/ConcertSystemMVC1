@@ -40,29 +40,10 @@
                         <select name="tableName" class="form-control">
                             <option value="Concerts">Концерти</option>
                             <option value="Artist">Виконавці</option>
-                            <option value="Spectators">Глядачі</option>
                         </select>
                     </div>
                     <div class="form-group">
                         <input type="file" name="file" class="form-control" accept=".xlsx" />
-                    </div>
-                    <button type="submit" class="btn btn-primary">Імпортувати</button>
-                </form>
-
-                <hr>
-
-                <h5>З Word</h5>
-                <form asp-action="ImportDocx" method="post" enctype="multipart/form-data">
-                    <div class="form-group">
-                        <label>Виберіть таблицю:</label>
-                        <select name="tableName" class="form-control">
-                            <option value="Concerts">Концерти</option>
-                            <option value="Artist">Виконавці</option>
-                            <option value="Spectators">Глядачі</option>
-                        </select>
-                    </div>
-                    <div class="form-group">
-                        <input type="file" name="file" class="form-control" accept=".docx" />
                     </div>
                     <button type="submit" class="btn btn-primary">Імпортувати</button>
                 </form>
@@ -123,58 +104,6 @@
                     </div>
                     <button type="submit" class="btn btn-primary">Експортувати</button>
                 </form>
-
-                <hr>
-
-                <h5>В Word</h5>
-                <form asp-action="ExportDocxWithFilter" method="post" id="wordExportForm">
-                    <div class="form-group">
-                        <label>Виберіть таблицю:</label>
-                        <select name="tableName" class="form-control" id="wordTableSelect" onchange="toggleConcertFilters('word')">
-                            <option value="Concerts">Концерти</option>
-                            <option value="Artist">Виконавці</option>
-                            <option value="Spectators">Глядачі</option>
-                        </select>
-                    </div>
-                    <!-- Фільтри для концертів -->
-                    <div id="wordConcertFilters" style="display: none;">
-                        <div class="form-group">
-                            <label>Фільтр за артистом:</label>
-                            <select name="artistFilter" class="form-control">
-                                <option value="">Без фільтру</option>
-                                @foreach (var artist in ViewBag.Artists)
-                                {
-                                    <option value="@artist">@artist</option>
-                                }
-                            </select>
-                        </div>
-                        <div class="form-group">
-                            <label>Фільтр за містом:</label>
-                            <select name="locationFilter" class="form-control">
-                                <option value="">Без фільтру</option>
-                                @foreach (var location in ViewBag.Locations)
-                                {
-                                    <option value="@location">@location</option>
-                                }
-                            </select>
-                        </div>
-                        <div class="form-group">
-                            <label>Фільтр за жанром:</label>
-                            <select name="genreFilter" class="form-control">
-                                <option value="">Без фільтру</option>
-                                @foreach (var genre in ViewBag.Genres)
-                                {
-                                    <option value="@genre">@genre</option>
-                                }
-                            </select>
-                        </div>
-                        <div class="form-group">
-                            <label>Фільтр за датою проведення:</label>
-                            <input type="date" name="dateFilter" class="form-control" />
-                        </div>
-                    </div>
-                    <button type="submit" class="btn btn-primary">Експортувати</button>
-                </form>
             </div>
         </div>
     </div>
@@ -194,6 +123,5 @@
     // Викликаємо функцію при завантаженні сторінки
     window.onload = function() {
         toggleConcertFilters('excel');
-        toggleConcertFilters('word');
     };
 </script>
